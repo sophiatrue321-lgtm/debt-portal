@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Truee Empire — Debt Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --te-bg: #0a0a0a;
+  --te-surface: #141414;
+  --te-surface2: #1a1a1a;
+  --te-gold: #c9a84c;
+  --te-gold-dim: #8a7235;
+  --te-gold-glow: rgba(201,168,76,0.15);
+  --te-text: #e8e4dc;
+  --te-text-dim: #8a857b;
+  --te-red: #c45c5c;
+  --te-green: #5cb87a;
+  --te-border: rgba(201,168,76,0.12);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--te-bg);
+  font-family: 'DM Sans', sans-serif;
+  color: var(--te-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== LOGIN SCREEN ===== */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  padding: 2rem;
+}
+.bg-line {
+  position: absolute;
+  background: linear-gradient(180deg, transparent, rgba(201,168,76,0.04), transparent);
+  width: 1px;
+  height: 100%;
+  top: 0;
+  pointer-events: none;
+}
+.logo-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 500;
+  color: var(--te-gold);
+  letter-spacing: 8px;
+  text-transform: uppercase;
+  text-align: center;
+  opacity: 0;
+  transform: scale(0.3);
+  animation: logoGrow 1.8s cubic-bezier(0.16,1,0.3,1) 0.3s forwards;
+  font-size: 42px;
+  line-height: 1;
+}
+.logo-shimmer {
+  position: relative;
+  display: inline-block;
+}
+.logo-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 60%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  animation: shimmer 1s 2.2s forwards;
+}
+@keyframes logoGrow {
+  0% { opacity:0; transform:scale(0.3); filter:blur(8px); }
+  40% { opacity:1; filter:blur(0); }
+  70% { transform:scale(1.08); }
+  100% { opacity:1; transform:scale(1); filter:blur(0); }
+}
+@keyframes shimmer { 0%{left:-100%} 100%{left:200%} }
+.login-divider {
+  width: 40px; height: 1px;
+  background: var(--te-gold-dim);
+  margin: 14px auto 0;
+  opacity: 0;
+  animation: fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) 2.4s forwards;
+}
+.login-subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: var(--te-gold-dim);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin-top: 14px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: fadeUp 1s cubic-bezier(0.16,1,0.3,1) 2s forwards;
+}
+@keyframes fadeUp { to { opacity:1; transform:translateY(0); } }
+.login-form {
+  margin-top: 2.5rem;
+  width: 100%; max-width: 320px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: fadeUp 1.2s cubic-bezier(0.16,1,0.3,1) 2.8s forwards;
+}
+.login-field {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--te-surface);
+  border: 1px solid var(--te-border);
+  border-radius: 8px;
+  color: var(--te-text);
+  font-size: 14px;
+  font-family: 'DM Sans', sans-serif;
+  margin-bottom: 12px;
+  outline: none;
+  transition: border-color 0.3s;
+}
+.login-field:focus { border-color: var(--te-gold); }
+.login-field::placeholder { color: var(--te-text-dim); }
+.login-btn {
+  width: 100%; padding: 13px;
+  background: transparent;
+  color: var(--te-gold);
+  border: 1px solid var(--te-gold);
+  border-radius: 8px;
+  font-size: 13px; font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-top: 4px;
+  transition: all 0.3s;
+}
+.login-btn:hover { background: var(--te-gold); color: var(--te-bg); }
+.login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-error {
+  color: var(--te-red);
+  font-size: 13px;
+  text-align: center;
+  margin-top: 12px;
+  min-height: 20px;
+}
+.glow-ring {
+  position: absolute;
+  width: 300px; height: 300px;
+  border-radius: 50%;
+  border: 1px solid rgba(201,168,76,0.03);
+  opacity: 0;
+  animation: ringPulse 4s 1s infinite;
+  pointer-events: none;
+}
+@keyframes ringPulse {
+  0% { opacity:0; transform:scale(0.8); }
+  50% { opacity:1; }
+  100% { opacity:0; transform:scale(1.8); }
+}
+
+/* ===== APP SHELL ===== */
+.app-wrap { display: none; min-height: 100vh; }
+.app-wrap.visible { display: block; animation: fadeUp 0.6s ease forwards; }
+.app-header {
+  padding: 1rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--te-border);
+}
+.app-logo {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px; font-weight: 500;
+  color: var(--te-gold);
+  letter-spacing: 2px;
+}
+.app-user {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--te-text-dim);
+}
+.app-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--te-gold), var(--te-gold-dim));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500; color: var(--te-bg);
+}
+.logout-btn {
+  background: none; border: none;
+  color: var(--te-text-dim);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+.logout-btn:hover { color: var(--te-gold); }
+.app-nav {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--te-border);
+  padding: 0 1.5rem;
+  overflow-x: auto;
+}
+.nav-tab {
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  color: var(--te-text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+  background: none; border-top: none; border-left: none; border-right: none;
+  font-family: 'DM Sans', sans-serif;
+}
+.nav-tab:hover { color: var(--te-text); }
+.nav-tab.active { color: var(--te-gold); border-bottom-color: var(--te-gold); }
+.app-body { padding: 1.5rem; max-width: 800px; margin: 0 auto; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeUp 0.4s ease forwards; }
+
+/* ===== INFO TAB ===== */
+.codex-header { text-align: center; padding: 2rem 0 1.5rem; }
+.codex-crown { font-size: 32px; margin-bottom: 8px; }
+.codex-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px; font-weight: 500;
+  color: var(--te-gold);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+.codex-sub {
+  font-size: 11px; color: var(--te-text-dim);
+  letter-spacing: 2px; margin-top: 6px;
+  text-transform: uppercase;
+}
+.accordion { margin-bottom: 8px; }
+.acc-header {
+  width: 100%;
+  background: var(--te-surface);
+  border: 1px solid var(--te-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; color: var(--te-text);
+  font-size: 13px; font-family: inherit;
+  text-align: left; letter-spacing: 0.5px;
+  transition: border-color 0.2s;
+}
+.acc-header:hover { border-color: rgba(201,168,76,0.3); }
+.acc-sym { color: var(--te-gold); font-size: 14px; margin-right: 10px; }
+.acc-chevron {
+  color: var(--te-text-dim); font-size: 10px;
+  transition: transform 0.25s;
+}
+.accordion.open .acc-chevron { transform: rotate(90deg); }
+.acc-content {
+  display: none;
+  background: var(--te-bg);
+  border: 1px solid var(--te-border);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  padding: 16px;
+  font-size: 12px; line-height: 1.7;
+  color: var(--te-text-dim);
+}
+.accordion.open .acc-content { display: block; }
+.accordion.open .acc-header { border-radius: 10px 10px 0 0; border-bottom-color: var(--te-border); }
+.codex-rule {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--te-border);
+}
+.codex-rule:last-child { border-bottom: none; }
+.rule-number {
+  color: var(--te-gold); font-weight: 500;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 14px; margin-right: 6px;
+}
+.rule-headline { color: var(--te-text); font-weight: 500; }
+.rule-explain { color: var(--te-text-dim); margin-top: 4px; font-size: 11px; }
+.contract-line {
+  display: flex; justify-content: space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--te-border);
+}
+.contract-line:last-child { border-bottom: none; }
+.contract-label { color: var(--te-text-dim); font-size: 11px; }
+.contract-val { color: var(--te-text); font-size: 12px; font-weight: 500; }
+.contract-val.gold { color: var(--te-gold); }
+.codex-warn {
+  background: rgba(201,168,76,0.06);
+  border: 1px solid rgba(201,168,76,0.15);
+  border-radius: 8px;
+  padding: 12px; margin-top: 14px;
+  font-size: 11px; color: var(--te-gold-dim);
+  line-height: 1.6;
+}
+.codex-footer {
+  text-align: center;
+  padding: 24px 0 8px;
+  font-size: 10px;
+  color: rgba(201,168,76,0.25);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ===== DASHBOARD ===== */
+.balance-hero { text-align: center; padding: 2rem 0 1.5rem; }
+.balance-label {
+  font-size: 12px; text-transform: uppercase;
+  letter-spacing: 3px; color: var(--te-text-dim);
+  margin-bottom: 8px;
+}
+.balance-amount {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 52px; font-weight: 500;
+  color: var(--te-gold); line-height: 1;
+}
+.balance-currency { font-size: 28px; color: var(--te-gold-dim); vertical-align: super; }
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px; margin: 1.25rem 0;
+}
+.stat-card {
+  background: var(--te-surface);
+  border: 1px solid var(--te-border);
+  border-radius: 10px;
+  padding: 1rem; text-align: center;
+}
+.stat-value {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px; font-weight: 500; color: var(--te-text);
+}
+.stat-value.gold { color: var(--te-gold); }
+.stat-value.green { color: var(--te-green); }
+.stat-label {
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--te-text-dim); margin-top: 4px;
+}
+.token-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--te-surface);
+  border: 1px solid var(--te-border);
+  border-radius: 10px; padding: 0.75rem 1rem; margin-top: 1rem;
+}
+.token-left { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--te-text-dim); }
+.token-icon {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--te-gold);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--te-bg); font-weight: 500;
+}
+.token-count {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 20px; font-weight: 500; color: var(--te-gold);
+}
+.section-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 16px; font-weight: 500;
+  color: var(--te-gold); letter-spacing: 1px;
+  margin: 1.5rem 0 0.75rem; text-transform: uppercase;
+}
+
+/* ===== TABLES ===== */
+.ledger-scroll-wrap {
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--te-border);
+  border-radius: 10px;
+  background: var(--te-surface);
+}
+.ledger-scroll-wrap::-webkit-scrollbar { width: 6px; }
+.ledger-scroll-wrap::-webkit-scrollbar-track { background: var(--te-bg); }
+.ledger-scroll-wrap::-webkit-scrollbar-thumb { background: var(--te-gold-dim); border-radius: 3px; }
+.ledger-scroll-wrap::-webkit-scrollbar-thumb:hover { background: var(--te-gold); }
+.ledger-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ledger-table th {
+  text-align: left; padding: 8px 12px;
+  font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--te-text-dim);
+  border-bottom: 1px solid var(--te-border); font-weight: 400;
+}
+.ledger-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(201,168,76,0.06);
+  color: var(--te-text);
+}
+.ledger-table tr:hover td { background: var(--te-gold-glow); }
+.amount-neg { color: var(--te-green); }
+.amount-pos { color: var(--te-red); }
+.type-badge {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+}
+.type-payment { background: rgba(92,184,122,0.15); color: var(--te-green); }
+.type-interest { background: rgba(196,92,92,0.15); color: var(--te-red); }
+.type-fine { background: rgba(201,168,76,0.15); color: var(--te-gold); }
+.type-deposit { background: rgba(201,168,76,0.1); color: var(--te-gold-dim); }
+
+/* ===== FILTERS ===== */
+.filter-row { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
+.filter-btn {
+  padding: 6px 14px; font-size: 12px;
+  border: 1px solid var(--te-border);
+  background: transparent; color: var(--te-text-dim);
+  border-radius: 6px; cursor: pointer;
+  font-family: 'DM Sans', sans-serif; transition: all 0.2s;
+}
+.filter-btn:hover { color: var(--te-text); border-color: var(--te-gold-dim); }
+.filter-btn.active { background: var(--te-gold); color: var(--te-bg); border-color: var(--te-gold); }
+
+/* ===== LOADING ===== */
+.loading-spinner {
+  display: flex; align-items: center; justify-content: center;
+  padding: 3rem; color: var(--te-text-dim); font-size: 14px;
+  gap: 10px;
+}
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--te-border);
+  border-top-color: var(--te-gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state {
+  text-align: center; padding: 2rem;
+  color: var(--te-text-dim); font-size: 14px;
+}
+
+/* ===== PASSWORD MODAL ===== */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 1rem;
+}
+.modal-box {
+  background: var(--te-surface);
+  border: 1px solid var(--te-border);
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 340px;
+}
+.modal-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--te-gold);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+.pw-success {
+  color: var(--te-green);
+  font-size: 13px;
+  text-align: center;
+  margin-top: 8px;
+  min-height: 20px;
+}
+
+/* ===== WHEEL ===== */
+.wheel-header { text-align: center; padding: 1.5rem 0 0.5rem; }
+.wheel-canvas-wrap {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  margin: 1rem auto;
+}
+.wheel-pointer {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 28px;
+  color: var(--te-gold);
+  z-index: 10;
+  filter: drop-shadow(0 2px 6px rgba(201,168,76,0.5));
+  line-height: 1;
+}
+.wheel-rotor {
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  border: 3px solid var(--te-gold-dim);
+  overflow: hidden;
+  transition: transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99);
+  box-shadow: 0 0 30px rgba(201,168,76,0.1), inset 0 0 20px rgba(0,0,0,0.5);
+}
+.wheel-rotor.spinning {
+  transition: none;
+}
+.wheel-selector {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 1.25rem 0 1rem;
+}
+.wheel-tier-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 18px;
+  background: var(--te-surface);
+  border: 1px solid var(--te-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'DM Sans', sans-serif;
+}
+.wheel-tier-btn:hover:not(:disabled) { border-color: rgba(201,168,76,0.3); }
+.wheel-tier-btn.active { border-color: var(--te-gold); background: rgba(201,168,76,0.08); }
+.wheel-tier-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.wheel-tier-cost {
+  font-size: 11px;
+  color: var(--te-text-dim);
+  letter-spacing: 1px;
+}
+.wheel-main-spin-btn {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto;
+  padding: 14px;
+  background: transparent;
+  color: var(--te-gold);
+  border: 1px solid var(--te-gold);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  transition: all 0.3s;
+}
+.wheel-main-spin-btn:hover:not(:disabled) { background: var(--te-gold); color: var(--te-bg); }
+.wheel-main-spin-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.wheel-tier-badge {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 3px 12px;
+  border-radius: 4px;
+}
+.wheel-bronze { background: rgba(180,130,70,0.15); color: #b4824a; }
+.wheel-silver { background: rgba(180,180,190,0.12); color: #a0a0aa; }
+.wheel-gold { background: rgba(201,168,76,0.15); color: var(--te-gold); }
+.wheel-result-wrap {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1rem;
+}
+.wheel-result-box {
+  background: var(--te-surface);
+  border: 1px solid var(--te-gold);
+  border-radius: 12px;
+  padding: 2.5rem 2rem;
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+  animation: fadeUp 0.5s ease;
+}
+.wheel-result-icon { font-size: 48px; margin-bottom: 12px; }
+.wheel-result-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--te-gold);
+  margin-bottom: 8px;
+}
+.wheel-result-detail {
+  font-size: 13px;
+  color: var(--te-text-dim);
+  line-height: 1.6;
+}
+.wheel-dismiss-btn {
+  margin-top: 20px;
+  width: 100%;
+  padding: 12px;
+  background: var(--te-gold);
+  color: var(--te-bg);
+  border: 1px solid var(--te-gold);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.wheel-dismiss-btn:hover { background: var(--te-text); border-color: var(--te-text); }
+
+/* ===== COMING SOON ===== */
+.coming-soon-wrap {
+  text-align: center;
+  padding: 4rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.coming-soon-icon {
+  font-size: 48px;
+  color: var(--te-gold-dim);
+  opacity: 0.5;
+  margin-bottom: 8px;
+}
+.coming-soon-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--te-gold);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+.coming-soon-subtitle {
+  font-size: 12px;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  color: var(--te-gold-dim);
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.15);
+  border-radius: 20px;
+  padding: 6px 20px;
+}
+.coming-soon-desc {
+  font-size: 13px;
+  color: var(--te-text-dim);
+  max-width: 380px;
+  line-height: 1.7;
+  margin-top: 8px;
+}
+.coming-soon-bar {
+  width: 40px;
+  height: 1px;
+  background: var(--te-gold-dim);
+  margin-top: 16px;
+  opacity: 0.4;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 500px) {
+  .logo-text { font-size: 32px; letter-spacing: 5px; }
+  .balance-amount { font-size: 40px; }
+  .balance-currency { font-size: 22px; }
+  .stat-row { grid-template-columns: 1fr; }
+  .wheel-grid { grid-template-columns: 1fr; }
+  .app-body { padding: 1rem; }
+  .ledger-table th, .ledger-table td { padding: 8px 8px; font-size: 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div class="login-wrap" id="loginScreen">
+  <div class="bg-line" style="left:20%"></div>
+  <div class="bg-line" style="left:40%"></div>
+  <div class="bg-line" style="left:60%"></div>
+  <div class="bg-line" style="left:80%"></div>
+  <div class="glow-ring"></div>
+
+  <div class="logo-text"><span class="logo-shimmer">Truee Empire</span></div>
+  <div class="login-divider"></div>
+  <div class="login-subtitle">Welcome, Truee addict</div>
+
+  <div class="login-form">
+    <input class="login-field" type="text" id="loginEmail" placeholder="Debtor code (e.g. D006)" autocomplete="username">
+    <input class="login-field" type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+    <button class="login-btn" id="loginBtn" onclick="handleLogin()">Enter the empire</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- ===== APP SHELL ===== -->
+<div class="app-wrap" id="appWrap">
+  <div class="app-header">
+    <div class="app-logo">TRUEE EMPIRE</div>
+    <div class="app-user">
+      <span id="userDisplayName"></span>
+      <div class="app-avatar" id="userAvatar"></div>
+      <button class="logout-btn" onclick="showPasswordModal()">Password</button>
+      <button class="logout-btn" onclick="handleLogout()">Log out</button>
+    </div>
+  </div>
+  <div class="app-nav">
+    <button class="nav-tab active" data-tab="dashboard" onclick="switchTab(this)">Dashboard</button>
+    <button class="nav-tab" data-tab="ledger" onclick="switchTab(this)">Ledger</button>
+    <button class="nav-tab" data-tab="tokens" onclick="switchTab(this)">Tokens</button>
+    <button class="nav-tab" data-tab="wheel" onclick="switchTab(this)">Wheel</button>
+    <button class="nav-tab" data-tab="shop" onclick="switchTab(this)">Shop</button>
+    <button class="nav-tab" data-tab="stipulations" onclick="switchTab(this)">Stipulations</button>
+    <button class="nav-tab" data-tab="info" onclick="switchTab(this)">Info</button>
+  </div>
+  <div class="app-body">
+
+    <!-- DASHBOARD TAB -->
+    <div class="tab-panel active" id="tab-dashboard">
+      <div class="balance-hero">
+        <div class="balance-label">Outstanding balance</div>
+        <div class="balance-amount"><span class="balance-currency">&pound;</span><span id="dashBalance">—</span></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-value gold" id="dashTokens">—</div>
+          <div class="stat-label">Tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="dashTotalPaid">—</div>
+          <div class="stat-label">Total paid</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value green" id="dashPaymentCount">—</div>
+          <div class="stat-label">Payments</div>
+        </div>
+      </div>
+      <div class="token-bar">
+        <div class="token-left">
+          <div class="token-icon">T</div>
+          <span>Token balance</span>
+        </div>
+        <div class="token-count" id="dashTokenBar">—</div>
+      </div>
+      <div class="section-title">Recent activity</div>
+      <div id="dashRecentActivity">
+        <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+      </div>
+    </div>
+
+    <!-- LEDGER TAB -->
+    <div class="tab-panel" id="tab-ledger">
+      <div class="section-title">Full ledger</div>
+      <div class="filter-row">
+        <button class="filter-btn active" data-filter="all" onclick="filterLedger(this,'all')">All</button>
+        <button class="filter-btn" data-filter="Payment" onclick="filterLedger(this,'Payment')">Payments</button>
+        <button class="filter-btn" data-filter="Interest" onclick="filterLedger(this,'Interest')">Interest</button>
+        <button class="filter-btn" data-filter="Fine" onclick="filterLedger(this,'Fine')">Fines</button>
+        <button class="filter-btn" data-filter="Deposit" onclick="filterLedger(this,'Deposit')">Deposits</button>
+      </div>
+      <div class="ledger-scroll-wrap" id="ledgerScrollWrap">
+        <div id="ledgerTableWrap">
+          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOKENS TAB -->
+    <div class="tab-panel" id="tab-tokens">
+      <div class="balance-hero" style="padding:1.5rem 0 1rem;">
+        <div class="balance-label">Token balance</div>
+        <div class="balance-amount" style="font-size:40px;"><span class="balance-currency" style="font-size:22px;">T</span><span id="tokenBalance">—</span></div>
+      </div>
+      <div class="section-title">Token history</div>
+      <div id="tokenTableWrap">
+        <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+      </div>
+    </div>
+
+    <!-- WHEEL TAB -->
+    <div class="tab-panel" id="tab-wheel">
+      <div class="wheel-header">
+        <div class="balance-label">Your tokens</div>
+        <div class="balance-amount" style="font-size:40px;"><span class="balance-currency" style="font-size:22px;">T</span><span id="wheelTokenBalance">—</span></div>
+      </div>
+
+      <!-- ANIMATED WHEEL -->
+      <div class="wheel-canvas-wrap">
+        <div class="wheel-pointer">&#9660;</div>
+        <div class="wheel-rotor" id="wheelRotor">
+          <svg viewBox="0 0 300 300" id="wheelSvg" width="300" height="300"></svg>
+        </div>
+      </div>
+
+      <!-- WHEEL TIER SELECTOR -->
+      <div class="wheel-selector">
+        <button class="wheel-tier-btn active" id="selBronze" onclick="selectWheelTier('bronze')" disabled>
+          <span class="wheel-tier-badge wheel-bronze">Bronze</span>
+          <span class="wheel-tier-cost">10 T</span>
+        </button>
+        <button class="wheel-tier-btn" id="selSilver" onclick="selectWheelTier('silver')" disabled>
+          <span class="wheel-tier-badge wheel-silver">Silver</span>
+          <span class="wheel-tier-cost">30 T</span>
+        </button>
+        <button class="wheel-tier-btn" id="selGold" onclick="selectWheelTier('gold')" disabled>
+          <span class="wheel-tier-badge wheel-gold">Gold</span>
+          <span class="wheel-tier-cost">75 T</span>
+        </button>
+      </div>
+
+      <button class="wheel-main-spin-btn" id="btnMainSpin" onclick="spinWheel()" disabled>Spin the wheel</button>
+
+      <div class="codex-warn" style="margin-top:24px;">All spin results are final and logged automatically to your ledger. Tokens spent on spins cannot be recovered. The wheel decides. You accept.</div>
+    </div>
+
+    <!-- SHOP TAB -->
+    <div class="tab-panel" id="tab-shop">
+      <div class="coming-soon-wrap">
+        <div class="coming-soon-icon">&#9733;</div>
+        <div class="coming-soon-title">Token Shop</div>
+        <div class="coming-soon-subtitle">Coming soon</div>
+        <div class="coming-soon-desc">Spend your tokens on lines, interest shields, and custom tasks. All purchases final. All purchases logged. The Empress decides what you deserve.</div>
+        <div class="coming-soon-bar"></div>
+      </div>
+    </div>
+
+    <!-- STIPULATIONS TAB -->
+    <div class="tab-panel" id="tab-stipulations">
+      <div class="codex-header">
+        <div class="codex-crown">&#9878;</div>
+        <div class="codex-title">Your Stipulations</div>
+        <div class="codex-sub">The terms that bind you</div>
+      </div>
+
+      <div class="accordion open" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9830;</span>Contract terms</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content" id="stipContractTerms">
+          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <div class="accordion" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9888;</span>Fines &amp; penalties</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content" id="stipFines">
+          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <div class="accordion" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9733;</span>Special clauses</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content" id="stipSpecialClauses">
+          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+        </div>
+      </div>
+
+      <div class="codex-footer">Your stipulations are non-negotiable &middot; The Empress decides</div>
+    </div>
+
+    <!-- INFO TAB -->
+    <div class="tab-panel" id="tab-info">
+      <div class="codex-header">
+        <div class="codex-crown">&#9818;</div>
+        <div class="codex-title">The Empire Codex</div>
+        <div class="codex-sub">Know your place. Know the rules.</div>
+      </div>
+
+      <div class="accordion open" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9878;</span>The rules of the empire</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content">
+          <div class="codex-rule">
+            <span class="rule-number">I.</span><span class="rule-headline">All debt is absolute.</span>
+            <div class="rule-explain">Your balance is non-negotiable. Interest accrues. Fines are final.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-number">II.</span><span class="rule-headline">Weekly payments are mandatory.</span>
+            <div class="rule-explain">Miss a payment and penalties will be applied without warning.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-number">III.</span><span class="rule-headline">The Empress's word is law.</span>
+            <div class="rule-explain">Disputes, requests, and appeals are at her sole discretion.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-number">IV.</span><span class="rule-headline">Silence is not compliance.</span>
+            <div class="rule-explain">Failure to respond within 24 hours may result in fines.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-number">V.</span><span class="rule-headline">Loyalty is rewarded. Disobedience is costly.</span>
+            <div class="rule-explain">Tokens are earned through compliance. They are lost through failure.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="accordion" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9830;</span>Your contract</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content">
+          <div class="contract-line"><span class="contract-label">Contract value</span><span class="contract-val gold" id="infoContractVal">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Current balance</span><span class="contract-val gold" id="infoBalance">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Minimum weekly payment</span><span class="contract-val gold" id="infoWeeklyPayment">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Member since</span><span class="contract-val" id="infoStartDate">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Payment streak</span><span class="contract-val" id="infoStreak">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Compliance rating</span><span class="contract-val" id="infoCompliance">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Standing</span><span class="contract-val" id="infoStanding">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Tier</span><span class="contract-val gold" id="infoTier">&mdash;</span></div>
+          <div class="contract-line"><span class="contract-label">Status</span><span class="contract-val gold" id="infoStatus">&mdash;</span></div>
+          <div class="codex-warn">Your contract is binding. Attempting to evade or dispute your debt will result in escalation at the Empress's discretion.</div>
+        </div>
+      </div>
+
+      <div class="accordion" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9733;</span>Tokens &amp; wheel spins</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content">
+          <div class="codex-rule">
+            <span class="rule-headline">Earning tokens</span>
+            <div class="rule-explain">Every &pound;1 paid toward your debt earns 1.5 tokens. Pay your minimum of <strong id="infoMinForTokens">&pound;50</strong> per week and earn <strong id="infoBaseTokens">75</strong> tokens.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">Streak multiplier</span>
+            <div class="rule-explain">4+ consecutive on-time weekly payments = <strong>1.5x tokens</strong> on every payment. Break the streak and you reset to 1x. Your current streak: <strong id="infoTokenStreak">0 weeks</strong>.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">Overpayment bonus</span>
+            <div class="rule-explain">Pay more than your weekly minimum and earn <strong>2x tokens</strong> on the amount above minimum. Rewarding excess. Encouraging sacrifice.</div>
+          </div>
+          <div style="border-top:1px solid var(--te-border);margin:16px 0 12px;"></div>
+          <div class="codex-rule">
+            <span class="rule-headline">&#9679; Bronze wheel &mdash; 10 tokens</span>
+            <div class="rule-explain">Monetary fines. Outcomes: &pound;5, &pound;10, &pound;15, &pound;25, &pound;50 fine added to your balance. One slot: no fine. Low cost to spin. Every spin is a gamble against your own wallet.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">&#9679; Silver wheel &mdash; 30 tokens</span>
+            <div class="rule-explain">Interest applied to your current balance. Outcomes: 0%, 5%, 10%, 15%, 20%, 25%, 30%. The higher the percentage, the more your debt grows in a single spin.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">&#9679; Gold wheel &mdash; 75 tokens</span>
+            <div class="rule-explain">Extreme interest on your current balance. Outcomes: 0%, 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%, 100%, 110%, 120%, 130%, 140%, 150%, 160%, 170%, 180%, 190%, 200%. The wheel decides your fate.</div>
+          </div>
+          <div class="codex-warn">All spin results are final and logged automatically to your ledger. Tokens spent on spins cannot be recovered. The wheel decides. You accept.</div>
+        </div>
+      </div>
+
+      <div class="accordion" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9734;</span>Token shop</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content">
+          <div class="codex-rule">
+            <span class="rule-headline">Lines &mdash; 15 tokens</span>
+            <div class="rule-explain">Purchase a set of lines to write. The number of lines is determined by the Empress. Failure to complete them on time will result in fines.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">Interest shield &mdash; 40 tokens</span>
+            <div class="rule-explain">Block one upcoming scheduled interest wheel spin. Must be purchased before the spin is triggered. Single use. Does not carry over.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">Custom task &mdash; 100 tokens</span>
+            <div class="rule-explain">Request a personalised assignment from the Empress. The nature and difficulty of the task is at her sole discretion. Completion is mandatory once assigned.</div>
+          </div>
+          <div class="codex-warn">All purchases are final. Token shop items cannot be refunded, exchanged, or transferred.</div>
+        </div>
+      </div>
+
+      <div class="accordion" onclick="this.classList.toggle('open')">
+        <div class="acc-header">
+          <div><span class="acc-sym">&#9745;</span>How to make payments</div>
+          <span class="acc-chevron">&#9654;</span>
+        </div>
+        <div class="acc-content">
+          <div class="codex-rule">
+            <span class="rule-headline">Via LoyalFans</span>
+            <div class="rule-explain">Send a tribute or tip through your LoyalFans account. Label it with your debtor code so it can be credited.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">Direct transfer</span>
+            <div class="rule-explain">Bank transfer details are provided on request via DM. Always include your debtor code as the payment reference.</div>
+          </div>
+          <div class="codex-rule">
+            <span class="rule-headline">Verification</span>
+            <div class="rule-explain">Payments are verified and logged within 24 hours. Your ledger and balance will update accordingly.</div>
+          </div>
+          <div class="codex-warn">Payments that cannot be verified will not be credited. Always include your debtor code.</div>
+        </div>
+      </div>
+
+      <div class="codex-footer">Truee Empire &middot; All debts are final</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- PASSWORD CHANGE MODAL -->
+<div class="modal-overlay" id="passwordModal" style="display:none;" onclick="if(event.target===this)hidePasswordModal()">
+  <div class="modal-box">
+    <div class="modal-title">Change Password</div>
+    <input class="login-field" type="password" id="pwNew" placeholder="New password" autocomplete="new-password">
+    <input class="login-field" type="password" id="pwConfirm" placeholder="Confirm new password" autocomplete="new-password">
+    <button class="login-btn" id="pwBtn" onclick="handlePasswordChange()">Update password</button>
+    <div class="login-error" id="pwError"></div>
+    <div class="pw-success" id="pwSuccess"></div>
+    <button class="logout-btn" style="margin-top:12px;width:100%;text-align:center;" onclick="hidePasswordModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- WHEEL RESULT MODAL (outside app-wrap for proper z-index) -->
+<div class="wheel-result-wrap" id="wheelResultWrap" style="display:none;">
+  <div class="wheel-result-box" id="wheelResultBox">
+    <div class="wheel-result-icon" id="wheelResultIcon"></div>
+    <div class="wheel-result-text" id="wheelResultText"></div>
+    <div class="wheel-result-detail" id="wheelResultDetail"></div>
+    <button class="wheel-dismiss-btn" onclick="hideWheelResult()">Dismiss</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ===== SUPABASE INIT =====
+const SUPABASE_URL = 'https://lnpyrvpgycktwklkbiuf.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_Nni0679mu3miPE-e0U2hlw_Rk9HR7IY';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ===== STATE =====
+let currentProfile = null;
+let ledgerData = [];
+let tokenData = [];
+let stipData = null;
+
+// ===== AUTH =====
+async function handleLogin() {
+  let code = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errorEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginBtn');
+
+  if (!code || !password) {
+    errorEl.textContent = 'Enter your debtor code and password';
+    return;
+  }
+
+  // Convert debtor code to internal email
+  // e.g. "D006" -> "d006@trueeempire.local"
+  const email = code.toLowerCase().replace(/[^a-z0-9]/g, '') + '@trueeempire.local';
+
+  btn.disabled = true;
+  btn.textContent = 'ENTERING...';
+  errorEl.textContent = '';
+
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    await loadApp(data.user);
+  } catch (err) {
+    errorEl.textContent = 'Access denied. Check your credentials.';
+    btn.disabled = false;
+    btn.textContent = 'ENTER THE EMPIRE';
+  }
+}
+
+async function handleLogout() {
+  await sb.auth.signOut();
+  currentProfile = null;
+  ledgerData = [];
+  tokenData = [];
+  document.getElementById('appWrap').classList.remove('visible');
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').textContent = '';
+}
+
+// Check for existing session on page load
+async function checkSession() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    document.getElementById('loginScreen').style.display = 'none';
+    await loadApp(session.user);
+  }
+}
+
+// ===== LOAD APP =====
+async function loadApp(user) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appWrap').classList.add('visible');
+
+  // Load profile
+  const { data: profile, error: profileErr } = await sb
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+  if (profileErr || !profile) {
+    document.getElementById('userDisplayName').textContent = 'Unknown';
+    document.getElementById('userAvatar').textContent = '?';
+    return;
+  }
+
+  currentProfile = profile;
+
+  // Set header info
+  const name = profile.display_name || 'Debtor';
+  const code = profile.debtor_code || '';
+  document.getElementById('userDisplayName').textContent = code || name;
+  document.getElementById('userAvatar').textContent = code ? code.replace(/\D/g,'') : name.charAt(0).toUpperCase();
+
+  // Load all data
+  await Promise.all([loadLedger(), loadTokens(), loadStipulations()]);
+  renderDashboard();
+  renderInfo();
+  renderStipulations();
+  updateWheelButtons();
+  drawWheel(currentWheelTier);
+}
+
+// ===== DATA LOADING =====
+async function loadLedger() {
+  const { data, error } = await sb
+    .from('ledger')
+    .select('*')
+    .eq('profile_id', currentProfile.id)
+    .order('row_order', { ascending: true });
+
+  ledgerData = error ? [] : (data || []);
+}
+
+async function loadTokens() {
+  const { data, error } = await sb
+    .from('token_transactions')
+    .select('*')
+    .eq('profile_id', currentProfile.id)
+    .order('transaction_date', { ascending: false });
+
+  tokenData = error ? [] : (data || []);
+}
+
+// ===== RENDERING =====
+function formatAmount(amount) {
+  return Math.abs(amount).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d.getDate() + ' ' + months[d.getMonth()];
+}
+
+function getTypeBadge(type) {
+  const cls = {
+    'Payment': 'type-payment',
+    'Interest': 'type-interest',
+    'Fine': 'type-fine',
+    'Deposit': 'type-deposit'
+  }[type] || 'type-deposit';
+  return '<span class="type-badge ' + cls + '">' + type + '</span>';
+}
+
+function renderDashboard() {
+  // Balance
+  document.getElementById('dashBalance').textContent = formatAmount(currentProfile.current_balance || 0);
+
+  // Tokens
+  const tokens = currentProfile.token_balance || 0;
+  document.getElementById('dashTokens').textContent = tokens.toLocaleString();
+  document.getElementById('dashTokenBar').textContent = tokens.toLocaleString();
+
+  // Total paid & payment count
+  const payments = ledgerData.filter(r => r.entry_type === 'Payment');
+  const totalPaid = payments.reduce((sum, r) => sum + Math.abs(r.amount || 0), 0);
+  document.getElementById('dashTotalPaid').textContent = '\u00A3' + formatAmount(totalPaid);
+  document.getElementById('dashPaymentCount').textContent = payments.length;
+
+  // Recent activity (last 5)
+  const recent = ledgerData.slice(0, 5);
+  if (recent.length === 0) {
+    document.getElementById('dashRecentActivity').innerHTML = '<div class="empty-state">No activity yet</div>';
+    return;
+  }
+
+  let html = '<table class="ledger-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody>';
+  recent.forEach(function(row) {
+    const isNeg = row.amount < 0;
+    html += '<tr>';
+    html += '<td>' + formatDate(row.entry_date) + '</td>';
+    html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
+    html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
+    html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('dashRecentActivity').innerHTML = html;
+
+  // Also render ledger & tokens since data is loaded
+  renderLedger('all');
+  renderTokenTable();
+}
+
+function renderInfo() {
+  if (!currentProfile) return;
+  var p = currentProfile;
+  var el = function(id) { return document.getElementById(id); };
+  el('infoContractVal').textContent = '\u00A3' + formatAmount(p.contract_total || 0);
+  el('infoBalance').textContent = '\u00A3' + formatAmount(p.current_balance || 0);
+  var weeklyPay = p.weekly_payment || 50;
+  el('infoWeeklyPayment').textContent = '\u00A3' + formatAmount(weeklyPay);
+  el('infoStartDate').textContent = p.member_since ? formatDate(p.member_since) : '\u2014';
+  var streak = p.payment_streak || 0;
+  el('infoStreak').textContent = streak + ' week' + (streak !== 1 ? 's' : '') + (streak >= 4 ? ' \u2728 1.5x' : '');
+  el('infoCompliance').textContent = (p.compliance_rating || 100) + '%';
+  el('infoStanding').textContent = p.standing || 'Good';
+  el('infoTier').textContent = p.tier || 'Debtor';
+  el('infoStatus').textContent = p.is_active ? 'Active' : 'Inactive';
+  // Token section dynamic values
+  el('infoMinForTokens').textContent = '\u00A3' + formatAmount(weeklyPay);
+  el('infoBaseTokens').textContent = Math.floor(weeklyPay * 1.5);
+  el('infoTokenStreak').textContent = streak + ' week' + (streak !== 1 ? 's' : '') + (streak >= 4 ? ' (1.5x active!)' : '');
+}
+
+function renderLedger(filter) {
+  const filtered = filter === 'all' ? ledgerData : ledgerData.filter(function(r) { return r.entry_type === filter; });
+
+  if (filtered.length === 0) {
+    document.getElementById('ledgerTableWrap').innerHTML = '<div class="empty-state">No ' + (filter === 'all' ? 'entries' : filter.toLowerCase() + 's') + ' found</div>';
+    return;
+  }
+
+  let html = '<table class="ledger-table"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>';
+  filtered.forEach(function(row) {
+    const isNeg = row.amount < 0;
+    html += '<tr>';
+    html += '<td>' + formatDate(row.entry_date) + '</td>';
+    html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
+    html += '<td>' + (row.description || '—') + '</td>';
+    html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
+    html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('ledgerTableWrap').innerHTML = html;
+  // Auto-scroll to bottom so newest entries are visible
+  var scrollWrap = document.getElementById('ledgerScrollWrap');
+  if (scrollWrap) {
+    setTimeout(function() { scrollWrap.scrollTop = scrollWrap.scrollHeight; }, 50);
+  }
+}
+
+function renderTokenTable() {
+  if (tokenData.length === 0) {
+    document.getElementById('tokenTableWrap').innerHTML = '<div class="empty-state">No token activity yet</div>';
+    document.getElementById('tokenBalance').textContent = '0';
+    return;
+  }
+
+  document.getElementById('tokenBalance').textContent = (currentProfile.token_balance || 0).toLocaleString();
+
+  let html = '<table class="ledger-table"><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>';
+  tokenData.forEach(function(row) {
+    const isPos = row.amount > 0;
+    html += '<tr>';
+    html += '<td>' + formatDate(row.transaction_date) + '</td>';
+    html += '<td>' + (row.description || '—') + '</td>';
+    html += '<td style="color:var(--te-' + (isPos ? 'green' : 'red') + ');">' + (isPos ? '+' : '') + row.amount + '</td>';
+    html += '<td>' + (row.balance_after || 0) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('tokenTableWrap').innerHTML = html;
+}
+
+// ===== STIPULATIONS =====
+async function loadStipulations() {
+  const { data, error } = await sb
+    .from('stipulations')
+    .select('*')
+    .eq('profile_id', currentProfile.id)
+    .single();
+
+  stipData = error ? null : data;
+}
+
+function renderStipulations() {
+  var termsEl = document.getElementById('stipContractTerms');
+  var finesEl = document.getElementById('stipFines');
+  var clausesEl = document.getElementById('stipSpecialClauses');
+
+  if (!stipData) {
+    var empty = '<div class="empty-state">No stipulations on file yet</div>';
+    termsEl.innerHTML = empty;
+    finesEl.innerHTML = empty;
+    clausesEl.innerHTML = empty;
+    return;
+  }
+
+  // Contract terms
+  var s = stipData;
+  var termLines = [];
+  termLines.push(['Weekly payment', '\u00A3' + formatAmount(s.weekly_payment || 0)]);
+  termLines.push(['Payment day', s.payment_day || '\u2014']);
+  termLines.push(['Deposit paid', '\u00A3' + formatAmount(s.deposit_paid || 0)]);
+  termLines.push(['Contract value', '\u00A3' + formatAmount(s.contract_value || 0)]);
+  if (s.contract_start) termLines.push(['Contract start', formatDate(s.contract_start)]);
+  termLines.push(['Interest wheel', s.interest_wheel || '\u2014']);
+  if (s.high_interest_wheel) {
+    termLines.push(['High interest wheel', s.high_interest_wheel]);
+    if (s.high_interest_threshold) {
+      termLines.push(['Triggered when balance below', '\u00A3' + formatAmount(s.high_interest_threshold)]);
+    }
+  }
+  if (s.late_fee) termLines.push(['Late fee', s.late_fee]);
+  if (s.admin_fee) termLines.push(['Admin fee', s.admin_fee]);
+  if (s.fine_review_date) termLines.push(['Fine review date', formatDate(s.fine_review_date)]);
+
+  var html = '';
+  termLines.forEach(function(line) {
+    html += '<div class="contract-line"><span class="contract-label">' + line[0] + '</span><span class="contract-val gold">' + line[1] + '</span></div>';
+  });
+  if (s.notes) {
+    html += '<div class="codex-warn">' + s.notes + '</div>';
+  }
+  termsEl.innerHTML = html;
+
+  // Fines & penalties
+  var fines = [];
+  try { fines = typeof s.fines_json === 'string' ? JSON.parse(s.fines_json) : (s.fines_json || []); } catch(e) { fines = []; }
+
+  if (fines.length === 0) {
+    finesEl.innerHTML = '<div class="empty-state">No fines on file</div>';
+  } else {
+    var fHtml = '';
+    fines.forEach(function(f) {
+      fHtml += '<div class="codex-rule">';
+      fHtml += '<span class="rule-headline">' + (f.name || 'Fine') + '</span>';
+      if (f.amount) fHtml += '<div class="rule-explain">Amount: <strong>' + f.amount + '</strong></div>';
+      if (f.detail) fHtml += '<div class="rule-explain">' + f.detail + '</div>';
+      fHtml += '</div>';
+    });
+    finesEl.innerHTML = fHtml;
+  }
+
+  // Special clauses
+  var clauses = [];
+  try { clauses = typeof s.special_clauses_json === 'string' ? JSON.parse(s.special_clauses_json) : (s.special_clauses_json || []); } catch(e) { clauses = []; }
+
+  if (clauses.length === 0) {
+    clausesEl.innerHTML = '<div class="empty-state">No special clauses on file</div>';
+  } else {
+    var cHtml = '';
+    clauses.forEach(function(c) {
+      cHtml += '<div class="codex-rule">';
+      cHtml += '<span class="rule-headline">' + (c.name || 'Clause') + '</span>';
+      if (c.detail) cHtml += '<div class="rule-explain">' + c.detail + '</div>';
+      cHtml += '</div>';
+    });
+    clausesEl.innerHTML = cHtml;
+  }
+}
+
+// ===== WHEEL SPINS =====
+var currentWheelTier = 'bronze';
+var isSpinning = false;
+var wheelRotation = 0;
+
+var WHEEL_CONFIG = {
+  bronze: {
+    cost: 10,
+    labels: ['£0', '£5', '£10', '£15', '£25', '£50'],
+    colors: ['#1a2a1a', '#2a1a1a', '#1a2a1a', '#2a1a1a', '#1a2a1a', '#2a1a1a'],
+    accent: '#b4824a'
+  },
+  silver: {
+    cost: 30,
+    labels: ['0%', '5%', '10%', '15%', '20%', '25%', '30%'],
+    colors: ['#1a1a20', '#20202a', '#1a1a20', '#20202a', '#1a1a20', '#20202a', '#1a1a20'],
+    accent: '#a0a0aa'
+  },
+  gold: {
+    cost: 75,
+    labels: ['0%','10%','20%','30%','40%','50%','60%','70%','80%','90%','100%','110%','120%','130%','140%','150%','160%','170%','180%','190%','200%'],
+    colors: null,
+    accent: '#c9a84c'
+  }
+};
+
+function drawWheel(tier) {
+  var config = WHEEL_CONFIG[tier];
+  var labels = config.labels;
+  var n = labels.length;
+  var svg = document.getElementById('wheelSvg');
+  var cx = 150, cy = 150, r = 148;
+  var html = '';
+
+  for (var i = 0; i < n; i++) {
+    var a1 = (i * 360 / n - 90) * Math.PI / 180;
+    var a2 = ((i + 1) * 360 / n - 90) * Math.PI / 180;
+    var x1 = cx + r * Math.cos(a1);
+    var y1 = cy + r * Math.sin(a1);
+    var x2 = cx + r * Math.cos(a2);
+    var y2 = cy + r * Math.sin(a2);
+    var large = (360 / n > 180) ? 1 : 0;
+    var fill = config.colors ? config.colors[i % config.colors.length] : (i % 2 === 0 ? '#1a1510' : '#201a12');
+
+    html += '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + large + ',1 ' + x2 + ',' + y2 + ' Z" fill="' + fill + '" stroke="' + config.accent + '" stroke-width="0.5" stroke-opacity="0.3"/>';
+
+    // Label
+    var midA = ((i + 0.5) * 360 / n - 90) * Math.PI / 180;
+    var lr = r * 0.68;
+    var lx = cx + lr * Math.cos(midA);
+    var ly = cy + lr * Math.sin(midA);
+    var rot = (i + 0.5) * 360 / n;
+    var fontSize = n > 12 ? 8 : (n > 8 ? 10 : 12);
+    html += '<text x="' + lx + '" y="' + ly + '" fill="' + config.accent + '" font-size="' + fontSize + '" font-family="DM Sans,sans-serif" font-weight="500" text-anchor="middle" dominant-baseline="central" transform="rotate(' + rot + ',' + lx + ',' + ly + ')">' + labels[i] + '</text>';
+  }
+
+  // Center circle
+  html += '<circle cx="' + cx + '" cy="' + cy + '" r="22" fill="#0a0a0a" stroke="' + config.accent + '" stroke-width="1.5"/>';
+  html += '<text x="' + cx + '" y="' + cy + '" fill="' + config.accent + '" font-size="9" font-family="DM Sans,sans-serif" font-weight="500" text-anchor="middle" dominant-baseline="central" letter-spacing="1.5">' + tier.toUpperCase() + '</text>';
+
+  svg.innerHTML = html;
+}
+
+function selectWheelTier(tier) {
+  if (isSpinning) return;
+  currentWheelTier = tier;
+  document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('sel' + tier.charAt(0).toUpperCase() + tier.slice(1)).classList.add('active');
+  drawWheel(tier);
+  // Reset rotation smoothly
+  var rotor = document.getElementById('wheelRotor');
+  rotor.style.transition = 'none';
+  wheelRotation = 0;
+  rotor.style.transform = 'rotate(0deg)';
+  updateWheelButtons();
+}
+
+function updateWheelButtons() {
+  var tokens = (currentProfile && currentProfile.token_balance) || 0;
+  document.getElementById('wheelTokenBalance').textContent = tokens.toLocaleString();
+
+  var selBronze = document.getElementById('selBronze');
+  var selSilver = document.getElementById('selSilver');
+  var selGold = document.getElementById('selGold');
+  var mainBtn = document.getElementById('btnMainSpin');
+
+  selBronze.disabled = tokens < 10;
+  selSilver.disabled = tokens < 30;
+  selGold.disabled = tokens < 75;
+
+  var config = WHEEL_CONFIG[currentWheelTier];
+  mainBtn.disabled = tokens < config.cost || isSpinning;
+}
+
+async function spinWheel() {
+  var config = WHEEL_CONFIG[currentWheelTier];
+  var tokens = (currentProfile && currentProfile.token_balance) || 0;
+  if (tokens < config.cost || isSpinning) return;
+
+  isSpinning = true;
+  var mainBtn = document.getElementById('btnMainSpin');
+  mainBtn.disabled = true;
+  mainBtn.textContent = 'SPINNING...';
+  document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.disabled = true; });
+
+  // Start the visual spin immediately (fast continuous rotation)
+  var rotor = document.getElementById('wheelRotor');
+  rotor.style.transition = 'none';
+  rotor.style.transform = 'rotate(' + wheelRotation + 'deg)';
+
+  // Force reflow
+  void rotor.offsetHeight;
+
+  // Spin fast for the API call duration
+  var fastSpin = wheelRotation + 2160; // 6 full rotations
+  rotor.style.transition = 'transform 3s linear';
+  rotor.style.transform = 'rotate(' + fastSpin + 'deg)';
+
+  try {
+    // Call the secure server-side function
+    var result = await sb.rpc('spin_wheel', { wheel_type: currentWheelTier });
+
+    if (result.error) throw result.error;
+    var data = result.data;
+
+    if (data.error) {
+      alert(data.error);
+      isSpinning = false;
+      mainBtn.textContent = 'SPIN THE WHEEL';
+      updateWheelButtons();
+      return;
+    }
+
+    // Calculate where the wheel should land
+    var n = config.labels.length;
+    var resultIdx = -1;
+    var resultStr = String(data.result);
+    for (var i = 0; i < config.labels.length; i++) {
+      var lbl = config.labels[i].replace(/[£%]/g, '');
+      if (lbl === resultStr) { resultIdx = i; break; }
+    }
+    if (resultIdx === -1) resultIdx = 0;
+
+    // Calculate final angle: the winning segment should be at the top (pointer)
+    var segDeg = 360 / n;
+    var targetDeg = 360 - (resultIdx * segDeg + segDeg / 2);
+    var finalRotation = fastSpin + 1440 + targetDeg; // +4 more rotations for drama
+    wheelRotation = finalRotation;
+
+    // Animate to final position with easing
+    rotor.style.transition = 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+    rotor.style.transform = 'rotate(' + finalRotation + 'deg)';
+
+    // Wait for spin to finish, then show result
+    setTimeout(function() {
+      // Update local state
+      currentProfile.token_balance = data.token_balance;
+      currentProfile.current_balance = data.new_balance;
+
+      // Show result modal
+      var icon = '';
+      if (data.fine === 0) {
+        icon = '&#9733;';
+      } else if (currentWheelTier === 'bronze') {
+        icon = '&#9888;';
+      } else if (currentWheelTier === 'gold') {
+        icon = '&#128293;';
+      } else {
+        icon = '&#9878;';
+      }
+
+      document.getElementById('wheelResultIcon').innerHTML = icon;
+      document.getElementById('wheelResultText').textContent = data.label;
+      document.getElementById('wheelResultDetail').innerHTML =
+        'New balance: <strong>&pound;' + formatAmount(data.new_balance) + '</strong><br>' +
+        'Tokens remaining: <strong>' + data.token_balance + '</strong>';
+      document.getElementById('wheelResultWrap').style.display = 'flex';
+
+      // Refresh displayed data
+      updateWheelButtons();
+      document.getElementById('dashBalance').textContent = formatAmount(data.new_balance);
+      document.getElementById('dashTokens').textContent = data.token_balance.toLocaleString();
+      document.getElementById('dashTokenBar').textContent = data.token_balance.toLocaleString();
+
+      // Reload ledger and tokens
+      Promise.all([loadLedger(), loadTokens()]).then(function() {
+        renderLedger('all');
+        renderTokenTable();
+      });
+
+      isSpinning = false;
+      mainBtn.textContent = 'SPIN THE WHEEL';
+      updateWheelButtons();
+    }, 4200);
+
+  } catch (err) {
+    alert('Spin failed: ' + (err.message || 'Unknown error'));
+    isSpinning = false;
+    mainBtn.textContent = 'SPIN THE WHEEL';
+    updateWheelButtons();
+  }
+}
+
+function hideWheelResult() {
+  document.getElementById('wheelResultWrap').style.display = 'none';
+}
+
+// ===== PASSWORD CHANGE =====
+function showPasswordModal() {
+  document.getElementById('passwordModal').style.display = 'flex';
+  document.getElementById('pwNew').value = '';
+  document.getElementById('pwConfirm').value = '';
+  document.getElementById('pwError').textContent = '';
+  document.getElementById('pwSuccess').textContent = '';
+  document.getElementById('pwBtn').disabled = false;
+  document.getElementById('pwBtn').textContent = 'Update password';
+}
+
+function hidePasswordModal() {
+  document.getElementById('passwordModal').style.display = 'none';
+}
+
+async function handlePasswordChange() {
+  var pw = document.getElementById('pwNew').value;
+  var confirm = document.getElementById('pwConfirm').value;
+  var errorEl = document.getElementById('pwError');
+  var successEl = document.getElementById('pwSuccess');
+  var btn = document.getElementById('pwBtn');
+
+  errorEl.textContent = '';
+  successEl.textContent = '';
+
+  if (!pw || !confirm) {
+    errorEl.textContent = 'Enter your new password in both fields.';
+    return;
+  }
+  if (pw.length < 6) {
+    errorEl.textContent = 'Password must be at least 6 characters.';
+    return;
+  }
+  if (pw !== confirm) {
+    errorEl.textContent = 'Passwords do not match.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'UPDATING...';
+
+  try {
+    var result = await sb.auth.updateUser({ password: pw });
+    if (result.error) throw result.error;
+    successEl.textContent = 'Password updated successfully.';
+    btn.textContent = 'DONE';
+    setTimeout(function() { hidePasswordModal(); }, 1500);
+  } catch (err) {
+    errorEl.textContent = 'Failed to update password. Try again.';
+    btn.disabled = false;
+    btn.textContent = 'Update password';
+  }
+}
+
+// ===== TAB SWITCHING =====
+function switchTab(el) {
+  document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+  el.classList.add('active');
+  const tabId = el.getAttribute('data-tab');
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// ===== LEDGER FILTER =====
+function filterLedger(el, filter) {
+  document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  el.classList.add('active');
+  renderLedger(filter);
+}
+
+// ===== ENTER KEY =====
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') {
+    handleLogin();
+  }
+});
+
+// ===== INIT =====
+checkSession();
+</script>
+</body>
+</html>
