@@ -398,6 +398,7 @@ body {
 .type-interest { background: rgba(196,92,92,0.15); color: var(--te-red); }
 .type-fine { background: rgba(201,168,76,0.15); color: var(--te-gold); }
 .type-deposit { background: rgba(201,168,76,0.1); color: var(--te-gold-dim); }
+.type-debt-game { background: rgba(201,168,76,0.15); color: var(--te-gold); }
 
 /* ===== FILTERS ===== */
 .filter-row { display: flex; gap: 4px; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -1158,12 +1159,14 @@ function formatDate(dateStr) {
 }
 
 function getTypeBadge(type) {
-  const cls = {
-    'Payment': 'type-payment',
-    'Interest': 'type-interest',
-    'Fine': 'type-fine',
-    'Deposit': 'type-deposit'
-  }[type] || 'type-deposit';
+  var t = (type || '').toLowerCase();
+  var cls = {
+    'payment': 'type-payment',
+    'interest': 'type-interest',
+    'fine': 'type-fine',
+    'deposit': 'type-deposit',
+    'debt game': 'type-debt-game'
+  }[t] || 'type-deposit';
   return '<span class="type-badge ' + cls + '">' + type + '</span>';
 }
 
@@ -1176,31 +1179,47 @@ function renderDashboard() {
   document.getElementById('dashTokens').textContent = tokens.toLocaleString();
   document.getElementById('dashTokenBar').textContent = tokens.toLocaleString();
 
-  // Total paid & payment count
+  // Total paid & payment count — EXCLUDE deposits
   const payments = ledgerData.filter(r => r.entry_type === 'Payment');
   const totalPaid = payments.reduce((sum, r) => sum + Math.abs(r.amount || 0), 0);
   document.getElementById('dashTotalPaid').textContent = '\u00A3' + formatAmount(totalPaid);
   document.getElementById('dashPaymentCount').textContent = payments.length;
 
-  // Recent activity (last 5)
-  const recent = ledgerData.slice(0, 5);
+  // Recent activity — last 5 entries by row_order (newest at end of array)
+  var recent = ledgerData.slice(-5).reverse();
   if (recent.length === 0) {
     document.getElementById('dashRecentActivity').innerHTML = '<div class="empty-state">No activity yet</div>';
-    return;
+  } else {
+    var html = '<table class="ledger-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody>';
+    recent.forEach(function(row) {
+      var isNeg = row.amount < 0;
+      html += '<tr>';
+      html += '<td>' + formatDate(row.entry_date) + '</td>';
+      html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
+      html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
+      html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('dashRecentActivity').innerHTML = html;
   }
 
-  let html = '<table class="ledger-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead><tbody>';
-  recent.forEach(function(row) {
-    const isNeg = row.amount < 0;
-    html += '<tr>';
-    html += '<td>' + formatDate(row.entry_date) + '</td>';
-    html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
-    html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
-    html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
-    html += '</tr>';
-  });
-  html += '</tbody></table>';
-  document.getElementById('dashRecentActivity').innerHTML = html;
+  // Recent token activity (last 3)
+  if (tokenData.length > 0) {
+    var recentTokens = tokenData.slice(0, 3);
+    var tHtml = '<div class="section-title" style="margin-top:1.25rem;">Recent token activity</div>';
+    tHtml += '<table class="ledger-table"><thead><tr><th>Date</th><th>Description</th><th>Tokens</th></tr></thead><tbody>';
+    recentTokens.forEach(function(row) {
+      var isPos = row.amount > 0;
+      tHtml += '<tr>';
+      tHtml += '<td>' + formatDate(row.transaction_date) + '</td>';
+      tHtml += '<td>' + (row.description || '\u2014') + '</td>';
+      tHtml += '<td style="color:var(--te-' + (isPos ? 'green' : 'red') + ');">' + (isPos ? '+' : '') + row.amount + 'T</td>';
+      tHtml += '</tr>';
+    });
+    tHtml += '</tbody></table>';
+    document.getElementById('dashRecentActivity').innerHTML += tHtml;
+  }
 
   // Also render ledger & tokens since data is loaded
   renderLedger('all');
