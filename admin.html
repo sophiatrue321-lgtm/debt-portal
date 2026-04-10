@@ -65,6 +65,11 @@
   .btn:hover { background: #d4b35a; }
   .btn:active { transform: scale(0.98); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 8px 16px; font-size: 13px; }
+  .btn-outline { background: transparent; border: 1px solid var(--gold); color: var(--gold); }
+  .btn-outline:hover { background: var(--gold-glow); }
+  .btn-danger { background: var(--red); }
+  .btn-danger:hover { background: #c0392b; }
   .error-msg {
     background: rgba(231, 76, 60, 0.1); border: 1px solid rgba(231, 76, 60, 0.3);
     color: var(--red); padding: 10px 14px; border-radius: var(--radius-sm);
@@ -85,6 +90,14 @@
   .header-brand { display: flex; align-items: center; gap: 10px; }
   .header-crown { font-size: 24px; }
   .header-title { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 600; color: var(--gold); }
+  .header-actions { display: flex; align-items: center; gap: 8px; }
+  .header-btn {
+    background: none; border: none; color: var(--text-dim); font-size: 18px;
+    cursor: pointer; padding: 6px; border-radius: var(--radius-sm); transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .header-btn:hover { color: var(--text); background: var(--bg-card); }
+  .header-btn.active { color: var(--gold); }
   .header-logout {
     background: none; border: none; color: var(--text-dim); font-size: 13px;
     cursor: pointer; font-family: 'DM Sans', sans-serif; padding: 6px 12px;
@@ -157,8 +170,12 @@
   }
   .debtor-info { flex: 1; min-width: 0; }
   .debtor-name { font-size: 14px; font-weight: 600; }
-  .debtor-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
-  .debtor-balance { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 700; color: var(--gold); }
+  .debtor-username { font-size: 11px; color: var(--text-muted); font-style: italic; }
+  .debtor-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .debtor-contract-info { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .debtor-contract-info span { display: flex; align-items: center; gap: 3px; }
+  .debtor-balance { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 700; color: var(--gold); text-align: right; }
+  .debtor-weekly { font-size: 10px; color: var(--text-dim); text-align: right; margin-top: 2px; }
   .tb { font-size: 10px; padding: 2px 8px; border-radius: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
   .t-bronze { background: rgba(205, 127, 50, 0.15); color: #cd7f32; }
   .t-silver { background: rgba(192, 192, 192, 0.15); color: #c0c0c0; }
@@ -169,6 +186,7 @@
   .detail-header { text-align: center; margin-bottom: 24px; }
   .detail-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--gold-glow); border: 2px solid var(--gold); display: flex; align-items: center; justify-content: center; font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 22px; color: var(--gold); margin: 0 auto 12px; }
   .detail-name { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 700; }
+  .detail-username { font-size: 13px; color: var(--text-muted); font-style: italic; margin-top: 2px; }
   .detail-id { font-size: 12px; color: var(--text-dim); margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .detail-balance { font-family: 'Cormorant Garamond', serif; font-size: 36px; font-weight: 700; color: var(--gold); margin-top: 12px; }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 24px; }
@@ -220,7 +238,114 @@
   .search-bar input:focus { border-color: var(--gold); }
   .search-bar input::placeholder { color: var(--text-muted); }
   .search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 14px; }
-  @media (max-width: 400px) { .stats-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: 1fr; } .stat-value { font-size: 24px; } }
+
+  /* === ALERTS / NOTIFICATIONS === */
+  .alert-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .alert-item {
+    background: rgba(231, 76, 60, 0.08); border: 1px solid rgba(231, 76, 60, 0.25);
+    border-radius: var(--radius-sm); padding: 12px 14px;
+    display: flex; gap: 10px; align-items: flex-start;
+    font-size: 13px; line-height: 1.4; cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .alert-item:hover { border-color: rgba(231, 76, 60, 0.5); }
+  .alert-item.warn {
+    background: rgba(255, 193, 7, 0.08); border-color: rgba(255, 193, 7, 0.25);
+  }
+  .alert-item.warn:hover { border-color: rgba(255, 193, 7, 0.5); }
+  .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .alert-text { flex: 1; }
+  .alert-text strong { color: var(--gold); }
+
+  /* === DEBTOR RULES INFO BOX (on Add Transaction) === */
+  .rules-box {
+    background: rgba(201, 168, 76, 0.06); border: 1px solid var(--border-gold);
+    border-radius: var(--radius); padding: 14px; margin-bottom: 16px;
+  }
+  .rules-box .rules-title {
+    font-size: 12px; font-weight: 600; color: var(--gold); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 10px;
+  }
+  .rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .rules-grid .di { padding: 8px 10px; }
+
+  /* === WHEEL === */
+  .wheel-container { display: flex; flex-direction: column; align-items: center; margin: 20px 0; }
+  .wheel-svg { filter: drop-shadow(0 0 20px rgba(201, 168, 76, 0.2)); }
+  .wheel-result {
+    margin-top: 16px; text-align: center; padding: 16px;
+    background: var(--gold-glow); border: 1px solid var(--border-gold);
+    border-radius: var(--radius); width: 100%;
+  }
+  .wheel-result-pct {
+    font-family: 'Cormorant Garamond', serif; font-size: 48px;
+    font-weight: 700; color: var(--gold);
+  }
+  .wheel-result-amt { font-size: 14px; color: var(--text-dim); margin-top: 4px; }
+  .wheel-btn {
+    background: linear-gradient(135deg, var(--gold), #d4b35a);
+    color: #0a0a0a; border: none; border-radius: var(--radius-sm);
+    padding: 14px 32px; font-size: 16px; font-weight: 700;
+    font-family: 'DM Sans', sans-serif; cursor: pointer;
+    margin-top: 16px; transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(201, 168, 76, 0.3);
+  }
+  .wheel-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(201, 168, 76, 0.4); }
+  .wheel-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* === WHEEL MODE TABS === */
+  .wheel-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .wheel-tab {
+    flex: 1; padding: 10px 8px; border-radius: var(--radius-sm); font-size: 12px;
+    font-weight: 600; cursor: pointer; white-space: nowrap; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim); font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s; text-align: center; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .wheel-tab.active { background: var(--gold); color: #0a0a0a; border-color: var(--gold); }
+
+  /* === PRESET CHIPS === */
+  .preset-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .preset-chip {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 14px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .preset-chip:hover { border-color: var(--border-gold); }
+  .preset-chip.selected { border-color: var(--gold); background: var(--gold-glow); }
+  .preset-name { font-size: 13px; font-weight: 600; }
+  .preset-vals { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .preset-del { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; padding: 4px; }
+  .preset-del:hover { color: var(--red); }
+
+  /* === SETTINGS === */
+  .settings-section {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+  }
+  .settings-title {
+    font-family: 'Cormorant Garamond', serif; font-size: 18px;
+    font-weight: 600; color: var(--text); margin-bottom: 16px;
+  }
+
+  /* === CUSTOM WHEEL INPUTS === */
+  .cw-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .cw-row input { flex: 1; }
+  .cw-add { background: none; border: 1px dashed var(--border-gold); color: var(--gold); border-radius: var(--radius-sm); padding: 10px; cursor: pointer; width: 100%; font-family: 'DM Sans', sans-serif; font-size: 13px; transition: all 0.2s; margin-bottom: 8px; }
+  .cw-add:hover { background: var(--gold-glow); }
+  .cw-del { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 4px 8px; flex-shrink: 0; }
+  .cw-del:hover { color: var(--red); }
+
+  /* === BADGE for notification count === */
+  .badge {
+    background: var(--red); color: white; font-size: 10px; font-weight: 700;
+    min-width: 16px; height: 16px; border-radius: 8px; display: flex;
+    align-items: center; justify-content: center; padding: 0 4px;
+    position: absolute; top: -2px; right: -2px;
+  }
+  .nav-item { position: relative; }
+
+  @media (max-width: 400px) { .stats-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: 1fr; } .stat-value { font-size: 24px; } .rules-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -229,7 +354,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useRef } = React;
 
 const SB_URL = 'https://lnpyrvpgycktwklkbiuf.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxucHlydnBneWNrdHdrbGtiaXVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2Mjg0NTksImV4cCI6MjA5MTIwNDQ1OX0.Pufq8ftE-bq4zI0iLV_UJWVgkopuPQmvNb197NAtbCA';
@@ -269,6 +394,10 @@ async function refresh() {
   } catch { return false; }
 }
 
+async function changePassword(newPw) {
+  return await sf('/auth/v1/user', { method: 'PUT', body: JSON.stringify({ password: newPw }) });
+}
+
 function logout() { token = null; localStorage.removeItem('te_at'); localStorage.removeItem('te_rt'); }
 
 // Data fetchers
@@ -278,10 +407,36 @@ const getLedger = (pid) => sf(`/rest/v1/ledger?profile_id=eq.${pid}&select=*&ord
 const getAllLedger = (n=80) => sf(`/rest/v1/ledger?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=${n}`);
 const getTokenTx = (pid) => sf(`/rest/v1/token_transactions?profile_id=eq.${pid}&select=*&order=created_at.desc&limit=100`);
 const getStips = async (pid) => { const d = await sf(`/rest/v1/stipulations?profile_id=eq.${pid}&select=*&limit=1`); return d?.[0]; };
+const getAllStips = () => sf('/rest/v1/stipulations?select=*');
 
 const insertLedger = (e) => sf('/rest/v1/ledger', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
 const patchProfile = (id, d) => sf(`/rest/v1/profiles?id=eq.${id}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ ...d, updated_at: new Date().toISOString() }) });
 const insertTokenTx = (e) => sf('/rest/v1/token_transactions', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
+
+// Wheel presets stored in app_settings
+async function getWheelPresets() {
+  try {
+    const d = await sf('/rest/v1/app_settings?key=eq.wheel_presets&select=value');
+    if (d && d[0] && d[0].value) return JSON.parse(d[0].value);
+  } catch(e) { console.log('No presets yet'); }
+  return [];
+}
+
+async function saveWheelPresets(presets) {
+  // Try PATCH first, then POST if it doesn't exist
+  try {
+    const existing = await sf('/rest/v1/app_settings?key=eq.wheel_presets&select=key');
+    if (existing && existing.length > 0) {
+      await sf('/rest/v1/app_settings?key=eq.wheel_presets', { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ value: JSON.stringify(presets) }) });
+    } else {
+      await sf('/rest/v1/app_settings', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ key: 'wheel_presets', value: JSON.stringify(presets) }) });
+    }
+  } catch(e) {
+    // If RLS blocks REST, store locally as fallback
+    localStorage.setItem('te_wheel_presets', JSON.stringify(presets));
+    console.log('Presets saved locally (RLS may block REST write to app_settings)');
+  }
+}
 
 // Helpers
 function fmt(a) { return '£' + (parseFloat(a)||0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -311,7 +466,97 @@ function clauseInfo(s) {
   return String(c);
 }
 
-// Components
+// ========== NOTIFICATION ENGINE ==========
+function generateAlerts(profiles, stips, activity) {
+  const alerts = [];
+  const today = new Date();
+  const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const todayName = dayNames[today.getDay()];
+
+  profiles.forEach(p => {
+    if (p.is_active === false || p.standing === 'inactive') return;
+    const st = stips.find(s => s.profile_id === p.id);
+    if (!st) return;
+
+    // Check late payment: if payment_day matches today or has passed this week
+    if (st.payment_day) {
+      const pd = st.payment_day.toLowerCase().trim();
+      // Find last payment in activity for this debtor
+      const lastPay = activity.find(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment'));
+      const lastPayDate = lastPay ? new Date(lastPay.created_at) : null;
+      const daysSinceLastPay = lastPayDate ? (today - lastPayDate) / (1000*60*60*24) : 999;
+
+      if (daysSinceLastPay > 7) {
+        alerts.push({
+          type: 'danger',
+          icon: '🚨',
+          text: `<strong>${p.debtor_number} ${p.display_name}</strong> — payment overdue! Last payment was ${lastPayDate ? Math.floor(daysSinceLastPay) + ' days ago' : 'never'}. Due: ${st.payment_day}.`,
+          pid: p.id
+        });
+      }
+    }
+
+    // Check fine review date
+    if (st.fine_review_date) {
+      const frd = new Date(st.fine_review_date);
+      if (frd <= today) {
+        const daysOverdue = Math.floor((today - frd) / (1000*60*60*24));
+        alerts.push({
+          type: 'warn',
+          icon: '⚠️',
+          text: `<strong>${p.debtor_number} ${p.display_name}</strong> — fine review date ${daysOverdue === 0 ? 'is today' : 'was ' + daysOverdue + ' day(s) ago'}. Review fines and update.`,
+          pid: p.id
+        });
+      }
+    }
+
+    // Check if balance is very high (e.g. over contract_total)
+    const bal = parseFloat(p.current_balance) || 0;
+    const ct = parseFloat(st.contract_value) || 0;
+    if (ct > 0 && bal > ct * 1.5) {
+      alerts.push({
+        type: 'warn',
+        icon: '📈',
+        text: `<strong>${p.debtor_number} ${p.display_name}</strong> — balance (${fmt(bal)}) exceeds 150% of contract value (${fmt(ct)}).`,
+        pid: p.id
+      });
+    }
+  });
+
+  return alerts;
+}
+
+// ========== PARSE WHEEL STRING ==========
+function parseWheelStr(str) {
+  if (!str) return null;
+  // Try to extract numbers like "0%, 5%, 10%, 25%" or "5% fixed" or "0-30%"
+  const nums = [];
+  // Match patterns like "5%", "10%", etc
+  const pctMatches = str.match(/(\d+(?:\.\d+)?)\s*%/g);
+  if (pctMatches && pctMatches.length > 1) {
+    pctMatches.forEach(m => { nums.push(parseFloat(m)); });
+    return nums;
+  }
+  // Match range like "0-30%"
+  const rangeMatch = str.match(/(\d+)\s*[-–]\s*(\d+)\s*%/);
+  if (rangeMatch) {
+    const lo = parseInt(rangeMatch[1]), hi = parseInt(rangeMatch[2]);
+    const step = hi <= 30 ? 5 : 10;
+    for (let i = lo; i <= hi; i += step) nums.push(i);
+    return nums;
+  }
+  // Single fixed like "5%"
+  if (pctMatches && pctMatches.length === 1) {
+    return [parseFloat(pctMatches[0])];
+  }
+  return null;
+}
+
+// ========== WHEEL COLOURS ==========
+const WHEEL_COLORS = ['#c9a84c','#8B7355','#D4A574','#A0522D','#CD853F','#DAA520','#B8860B','#F4A460','#DEB887','#C8A882','#E8C872','#9B7B3A'];
+
+// ========== COMPONENTS ==========
+
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
@@ -333,13 +578,13 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-function Feed({ items, onTap, limit=20 }) {
+function Feed({ items, onTap, limit=20, privacyMode }) {
   if (!items?.length) return <div className="empty-state">No recent activity</div>;
   const ic = (t) => { const l=(t||'').toLowerCase(); if (l.includes('payment')) return {e:'💰',c:'fi-pay'}; if (l.includes('interest')) return {e:'📈',c:'fi-int'}; if (l.includes('fine')) return {e:'⚠️',c:'fi-fine'}; if (l.includes('spin')||l.includes('wheel')) return {e:'🎡',c:'fi-spin'}; if (l.includes('token')) return {e:'🪙',c:'fi-tok'}; if (l.includes('deposit')) return {e:'🏦',c:'fi-dep'}; if (l.includes('debt')||l.includes('game')) return {e:'🎮',c:'fi-game'}; if (l.includes('admin')) return {e:'📋',c:'fi-fee'}; return {e:'📝',c:'fi-pay'}; };
   return (
     <div className="feed-list">
       {items.slice(0,limit).map((it,i) => {
-        const o=ic(it.entry_type); const nm=it.profiles?.display_name||'Unknown'; const dn=it.profiles?.debtor_number||'';
+        const o=ic(it.entry_type); const nm=privacyMode ? '••••' : (it.profiles?.display_name||'Unknown'); const dn=it.profiles?.debtor_number||'';
         const a=parseFloat(it.amount)||0; const ip=(it.entry_type||'').toLowerCase().includes('payment');
         return (
           <div className="feed-item" key={it.id||i} onClick={()=>it.profile_id&&onTap?.(it.profile_id)}>
@@ -355,7 +600,24 @@ function Feed({ items, onTap, limit=20 }) {
   );
 }
 
-function Dashboard({ profiles, activity, onView }) {
+function AlertPanel({ alerts, onView }) {
+  if (!alerts || alerts.length === 0) return null;
+  return (
+    <div style={{marginBottom:'24px'}}>
+      <div className="section-title">🔔 Alerts ({alerts.length})</div>
+      <div className="alert-list">
+        {alerts.map((a,i) => (
+          <div className={`alert-item ${a.type==='warn'?'warn':''}`} key={i} onClick={()=>a.pid&&onView?.(a.pid)}>
+            <span className="alert-icon">{a.icon}</span>
+            <span className="alert-text" dangerouslySetInnerHTML={{__html:a.text}} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ profiles, activity, onView, alerts, privacyMode }) {
   const tot = profiles.reduce((s,p)=>s+(parseFloat(p.current_balance)||0),0);
   const act = profiles.filter(p=>p.is_active!==false&&p.standing!=='inactive').length;
   const tok = profiles.reduce((s,p)=>s+(parseFloat(p.token_balance)||0),0);
@@ -367,57 +629,112 @@ function Dashboard({ profiles, activity, onView }) {
         <div className="stat-card"><div className="stat-label">Active Debtors</div><div className="stat-value sm">{act}</div></div>
         <div className="stat-card"><div className="stat-label">Total Tokens</div><div className="stat-value sm">{tok}</div></div>
       </div>
+      <AlertPanel alerts={alerts} onView={onView} />
       <div className="section-title">📋 Recent Activity</div>
-      <Feed items={activity} onTap={onView} />
+      <Feed items={activity} onTap={onView} privacyMode={privacyMode} />
     </div>
   );
 }
 
-function DebtorList({ profiles, onView }) {
+function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
   const [q, setQ] = useState('');
-  const fl = profiles.filter(p => { const s=q.toLowerCase(); return !s||(p.display_name||'').toLowerCase().includes(s)||(p.debtor_number||'').toLowerCase().includes(s); });
+  const fl = profiles.filter(p => {
+    const s=q.toLowerCase();
+    if (!s) return true;
+    const un = usernames[p.debtor_number] || '';
+    return (p.display_name||'').toLowerCase().includes(s) || (p.debtor_number||'').toLowerCase().includes(s) || un.toLowerCase().includes(s);
+  });
   return (
     <div className="page">
       <div className="page-title">Debtors</div>
       <div className="search-bar"><span className="search-icon">🔍</span><input placeholder="Search debtors..." value={q} onChange={e=>setQ(e.target.value)} /></div>
       <div className="debtor-list">
-        {fl.map(p=>(
+        {fl.map(p=>{
+          const st = stips.find(s=>s.profile_id===p.id);
+          const un = usernames[p.debtor_number];
+          return (
           <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)}>
-            <div className="debtor-avatar">{ini(p.display_name)}</div>
+            <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name">{p.display_name||'Unnamed'}</div>
-              <div className="debtor-meta">{p.debtor_number}{p.tier&&<span className={`tb ${tc(p.tier)}`}>{p.tier}</span>}</div>
+              <div className="debtor-name">{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
+              {!privacyMode && un && <div className="debtor-username">@{un}</div>}
+              <div className="debtor-meta">
+                {!privacyMode && <span>{p.debtor_number}</span>}
+                {p.tier&&<span className={`tb ${tc(p.tier)}`}>{p.tier}</span>}
+                {st&&st.payment_day&&<span style={{fontSize:'10px'}}>📅 {st.payment_day}</span>}
+              </div>
+              {st && (
+                <div className="debtor-contract-info">
+                  {st.weekly_payment && <span>💳 {fmt(st.weekly_payment)}/wk</span>}
+                  {st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}
+                </div>
+              )}
             </div>
-            <div className="debtor-balance">{fmt(p.current_balance)}</div>
+            <div>
+              <div className="debtor-balance">{fmt(p.current_balance)}</div>
+              {p.weekly_payment && <div className="debtor-weekly">{fmt(p.weekly_payment)}/wk</div>}
+            </div>
           </div>
-        ))}
+          );
+        })}
         {fl.length===0&&<div className="empty-state">No debtors found</div>}
       </div>
     </div>
   );
 }
 
-function Detail({ pid, onBack }) {
+function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
   const [pr, setPr] = useState(null);
   const [lg, setLg] = useState([]);
   const [tk, setTk] = useState([]);
   const [st, setSt] = useState(null);
   const [ld, setLd] = useState(true);
   const [tab, setTab] = useState('ledger');
+  const [editUn, setEditUn] = useState(false);
+  const [unVal, setUnVal] = useState('');
+  const [unSaving, setUnSaving] = useState(false);
 
-  useEffect(() => { (async()=>{ setLd(true); try { const [a,b,c,d]=await Promise.all([getProfile(pid),getLedger(pid),getTokenTx(pid),getStips(pid)]); setPr(a);setLg(b||[]);setTk(c||[]);setSt(d); } catch(e){console.error(e);} setLd(false); })(); }, [pid]);
+  useEffect(() => { (async()=>{ setLd(true); try { const [a,b,c,d]=await Promise.all([getProfile(pid),getLedger(pid),getTokenTx(pid),getStips(pid)]); setPr(a);setLg(b||[]);setTk(c||[]);setSt(d);setUnVal(a?.username||''); } catch(e){console.error(e);} setLd(false); })(); }, [pid]);
+
+  const saveUsername = async () => {
+    setUnSaving(true);
+    try {
+      await patchProfile(pid, { username: unVal.trim() || null });
+      setPr({...pr, username: unVal.trim() || null});
+      onUsernameUpdate?.();
+      setEditUn(false);
+    } catch(e) { console.error(e); }
+    setUnSaving(false);
+  };
 
   if (ld) return <div className="page"><div className="loading-screen"><div className="spinner"/><span>Loading...</span></div></div>;
   if (!pr) return <div className="page"><div className="error-msg">Not found</div></div>;
 
   const fr = feeInfo(st); const cl = clauseInfo(st);
+  const un = usernames[pr.debtor_number];
+  const displayName = privacyMode ? pr.debtor_number : pr.display_name;
 
   return (
     <div className="page">
       <button className="back-btn" onClick={onBack}>← Back</button>
       <div className="detail-header">
-        <div className="detail-avatar">{ini(pr.display_name)}</div>
-        <div className="detail-name">{pr.display_name}</div>
+        <div className="detail-avatar">{ini(displayName)}</div>
+        <div className="detail-name">{displayName}</div>
+        {!privacyMode && (
+          <div className="detail-username">
+            {editUn ? (
+              <div style={{display:'flex',gap:'6px',alignItems:'center',justifyContent:'center',marginTop:'4px'}}>
+                <input className="fi" style={{width:'160px',padding:'6px 10px',fontSize:'13px',textAlign:'center'}} placeholder="Username..." value={unVal} onChange={e=>setUnVal(e.target.value)} />
+                <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={saveUsername} disabled={unSaving}>{unSaving?'...':'Save'}</button>
+                <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={()=>{setEditUn(false);setUnVal(pr?.username||'');}}>Cancel</button>
+              </div>
+            ) : (
+              <span onClick={()=>setEditUn(true)} style={{cursor:'pointer'}} title="Click to edit username">
+                {un ? `@${un}` : <span style={{color:'var(--text-muted)',fontStyle:'italic',fontSize:'11px'}}>+ Add username</span>}
+              </span>
+            )}
+          </div>
+        )}
         <div className="detail-id">{pr.debtor_number}{pr.tier&&<span className={`tb ${tc(pr.tier)}`}>{pr.tier}</span>}</div>
         <div className="detail-balance">{fmt(pr.current_balance)}</div>
       </div>
@@ -470,6 +787,7 @@ function Detail({ pid, onBack }) {
           <div className="di"><div className="di-label">High Interest Threshold</div><div className="di-value">{st.high_interest_threshold||'—'}</div></div>
           <div className="di"><div className="di-label">Admin Fee</div><div className="di-value">{st.admin_fee||'—'}</div></div>
           <div className="di"><div className="di-label">Late Fee</div><div className="di-value">{st.late_fee||'—'}</div></div>
+          {st.fine_review_date && <div className="di"><div className="di-label">Fine Review Date</div><div className="di-value">{fmtD(st.fine_review_date)}</div></div>}
         </div>
       )}
       {tab==='contract'&&!st&&<div className="empty-state">No contract data</div>}
@@ -477,7 +795,89 @@ function Detail({ pid, onBack }) {
   );
 }
 
-function AddTx({ profiles, onDone }) {
+// ========== SPINNING WHEEL COMPONENT ==========
+function SpinWheel({ segments, onResult, balance }) {
+  const [spinning, setSpinning] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [result, setResult] = useState(null);
+  const canvasRef = useRef(null);
+
+  const segCount = segments.length;
+  const segAngle = 360 / segCount;
+
+  const doSpin = () => {
+    if (spinning || segCount === 0) return;
+    setSpinning(true);
+    setResult(null);
+
+    const spins = 5 + Math.random() * 5; // 5-10 full rotations
+    const winIdx = Math.floor(Math.random() * segCount);
+    // Calculate final rotation so the winning segment lands at the top (pointer at top = 270deg in standard math)
+    const targetAngle = 360 - (winIdx * segAngle + segAngle / 2);
+    const totalRotation = rotation + spins * 360 + targetAngle;
+    setRotation(totalRotation);
+
+    setTimeout(() => {
+      const pct = segments[winIdx];
+      const amt = balance ? (pct / 100) * balance : 0;
+      setResult({ pct, amt, idx: winIdx });
+      setSpinning(false);
+      onResult?.(pct);
+    }, 4000);
+  };
+
+  return (
+    <div className="wheel-container">
+      <div style={{position:'relative',display:'inline-block'}}>
+        {/* Pointer */}
+        <div style={{position:'absolute',top:'-12px',left:'50%',transform:'translateX(-50%)',zIndex:10,fontSize:'24px',filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.5))'}}>▼</div>
+        <svg className="wheel-svg" width="280" height="280" viewBox="0 0 280 280" style={{transform:`rotate(${rotation}deg)`,transition:spinning?'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)':'none'}}>
+          {segments.map((seg, i) => {
+            const startAngle = (i * segAngle - 90) * (Math.PI / 180);
+            const endAngle = ((i + 1) * segAngle - 90) * (Math.PI / 180);
+            const x1 = 140 + 130 * Math.cos(startAngle);
+            const y1 = 140 + 130 * Math.sin(startAngle);
+            const x2 = 140 + 130 * Math.cos(endAngle);
+            const y2 = 140 + 130 * Math.sin(endAngle);
+            const largeArc = segAngle > 180 ? 1 : 0;
+            const midAngle = ((i + 0.5) * segAngle - 90) * (Math.PI / 180);
+            const tx = 140 + 85 * Math.cos(midAngle);
+            const ty = 140 + 85 * Math.sin(midAngle);
+            const textRotate = (i + 0.5) * segAngle;
+            return (
+              <g key={i}>
+                <path d={`M140,140 L${x1},${y1} A130,130 0 ${largeArc},1 ${x2},${y2} Z`}
+                  fill={WHEEL_COLORS[i % WHEEL_COLORS.length]}
+                  stroke="#0a0a0a" strokeWidth="2" />
+                <text x={tx} y={ty} textAnchor="middle" dominantBaseline="middle"
+                  fill="#0a0a0a" fontSize="14" fontWeight="700" fontFamily="DM Sans"
+                  transform={`rotate(${textRotate},${tx},${ty})`}>
+                  {seg}%
+                </text>
+              </g>
+            );
+          })}
+          <circle cx="140" cy="140" r="20" fill="#0a0a0a" stroke="var(--gold)" strokeWidth="3" />
+          <text x="140" y="140" textAnchor="middle" dominantBaseline="middle" fill="var(--gold)" fontSize="10" fontWeight="700" fontFamily="DM Sans">SPIN</text>
+        </svg>
+      </div>
+
+      <button className="wheel-btn" onClick={doSpin} disabled={spinning || segCount===0}>
+        {spinning ? '🎰 Spinning...' : '🎡 Spin the Wheel'}
+      </button>
+
+      {result && (
+        <div className="wheel-result">
+          <div className="wheel-result-pct">{result.pct}%</div>
+          {balance > 0 && <div className="wheel-result-amt">{result.pct}% of {fmt(balance)} = {fmt(result.amt)}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== ADD TRANSACTION (ENHANCED) ==========
+function AddTx({ profiles, stips, onDone, privacyMode }) {
   const [sid, setSid] = useState('');
   const [type, setType] = useState('Payment');
   const [amt, setAmt] = useState('');
@@ -488,8 +888,16 @@ function AddTx({ profiles, onDone }) {
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
+  const [showWheel, setShowWheel] = useState(false);
+  const [wheelMode, setWheelMode] = useState('debtor'); // debtor | custom | presets
+  const [customSegs, setCustomSegs] = useState(['0','5','10','15','20','25']);
+  const [presets, setPresets] = useState([]);
+  const [selPreset, setSelPreset] = useState(null);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [showSavePreset, setShowSavePreset] = useState(false);
 
   const pr = profiles.find(p=>p.id===sid);
+  const st = stips.find(s=>s.profile_id===sid);
   const bal = parseFloat(pr?.current_balance)||0;
   const isInt = type==='Interest';
   const ca = isInt ? (parseFloat(pct)/100)*bal : parseFloat(amt)||0;
@@ -497,6 +905,67 @@ function AddTx({ profiles, onDone }) {
   const isPay = type==='Payment';
   const nb = isPay ? bal-ca+fee : bal+ca+fee;
   const te = isPay&&pr ? calcTok(ca, parseFloat(pr.weekly_payment)||0, pr.payment_streak||0) : 0;
+
+  // Auto-set fee amount from stipulations
+  useEffect(() => {
+    if (st && st.admin_fee) {
+      const feeMatch = st.admin_fee.match(/[£$]?(\d+(?:\.\d+)?)/);
+      if (feeMatch) setFeeAmt(feeMatch[1]);
+    }
+  }, [st]);
+
+  // Load presets
+  useEffect(() => {
+    (async () => {
+      const local = localStorage.getItem('te_wheel_presets');
+      if (local) { try { setPresets(JSON.parse(local)); } catch{} return; }
+      const p = await getWheelPresets();
+      setPresets(p);
+    })();
+  }, []);
+
+  // Get wheel segments based on mode
+  const getWheelSegs = () => {
+    if (wheelMode === 'debtor' && st) {
+      const thresh = parseFloat(st.high_interest_threshold) || 0;
+      const useHigh = thresh > 0 && bal >= thresh;
+      const wheelStr = useHigh ? st.high_interest_wheel : st.interest_wheel;
+      const segs = parseWheelStr(wheelStr);
+      return segs || [];
+    }
+    if (wheelMode === 'custom') {
+      return customSegs.map(s => parseFloat(s) || 0).filter(n => !isNaN(n));
+    }
+    if (wheelMode === 'presets' && selPreset !== null && presets[selPreset]) {
+      return presets[selPreset].segments;
+    }
+    return [];
+  };
+
+  const handleWheelResult = (pctResult) => {
+    setPct(String(pctResult));
+  };
+
+  const savePreset = async () => {
+    if (!newPresetName.trim()) return;
+    const segs = customSegs.map(s => parseFloat(s) || 0).filter(n => !isNaN(n));
+    if (segs.length < 2) return;
+    const newPresets = [...presets, { name: newPresetName.trim(), segments: segs }];
+    setPresets(newPresets);
+    localStorage.setItem('te_wheel_presets', JSON.stringify(newPresets));
+    await saveWheelPresets(newPresets);
+    setNewPresetName('');
+    setShowSavePreset(false);
+  };
+
+  const deletePreset = async (idx) => {
+    const newPresets = presets.filter((_,i)=>i!==idx);
+    setPresets(newPresets);
+    localStorage.setItem('te_wheel_presets', JSON.stringify(newPresets));
+    await saveWheelPresets(newPresets);
+    if (selPreset === idx) setSelPreset(null);
+    if (selPreset > idx) setSelPreset(selPreset - 1);
+  };
 
   const go = async () => {
     if (!sid||ca<=0) { setErr('Fill in all fields with valid amounts'); return; }
@@ -510,8 +979,8 @@ function AddTx({ profiles, onDone }) {
         await patchProfile(sid, { token_balance:ct+te, tokens_earned:ce+te });
         await insertTokenTx({ profile_id:sid, transaction_date:now, amount:te, balance_after:ct+te, description:`${te} tokens for ${fmt(ca)} payment`, created_at:now });
       }
-      setOk(`✅ ${type} of ${fmt(ca)}${fee>0?` + ${fmt(fee)} fee`:''} recorded for ${pr.display_name}. New balance: ${fmt(nb)}${te>0?`. 🪙 ${te} tokens!`:''}`);
-      setAmt(''); setPct(''); setNotes('');
+      setOk(`✅ ${type} of ${fmt(ca)}${fee>0?` + ${fmt(fee)} fee`:''} recorded for ${privacyMode ? pr.debtor_number : pr.display_name}. New balance: ${fmt(nb)}${te>0?`. 🪙 ${te} tokens!`:''}`);
+      setAmt(''); setPct(''); setNotes(''); setShowWheel(false);
       onDone?.();
     } catch(e) { setErr('Error: '+e.message); }
     setLd(false);
@@ -521,13 +990,37 @@ function AddTx({ profiles, onDone }) {
     <div className="page">
       <div className="page-title">Add Transaction</div>
       <div className="form-group"><label className="form-label">Debtor</label>
-        <select className="fs" value={sid} onChange={e=>{setSid(e.target.value);setOk('');}}>
+        <select className="fs" value={sid} onChange={e=>{setSid(e.target.value);setOk('');setShowWheel(false);}}>
           <option value="">Select debtor...</option>
-          {profiles.map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {p.display_name} ({fmt(p.current_balance)})</option>))}
+          {profiles.map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name} ({fmt(p.current_balance)})</option>))}
         </select>
       </div>
+
+      {/* === DEBTOR RULES INFO BOX === */}
+      {sid && st && (
+        <div className="rules-box">
+          <div className="rules-title">📋 {privacyMode ? pr?.debtor_number : pr?.display_name}'s Rules</div>
+          <div className="rules-grid">
+            <div className="di"><div className="di-label">Weekly Payment</div><div className="di-value">{fmt(st.weekly_payment)}</div></div>
+            <div className="di"><div className="di-label">Payment Day</div><div className="di-value">{st.payment_day||'—'}</div></div>
+            <div className="di"><div className="di-label">Admin Fee</div><div className="di-value">{st.admin_fee||'—'}</div></div>
+            <div className="di"><div className="di-label">Late Fee</div><div className="di-value">{st.late_fee||'—'}</div></div>
+            <div className="di"><div className="di-label">Interest Wheel</div><div className="di-value" style={{fontSize:'12px'}}>{st.interest_wheel||'—'}</div></div>
+            <div className="di"><div className="di-label">High Interest</div><div className="di-value" style={{fontSize:'12px'}}>{st.high_interest_wheel||'—'}</div></div>
+            {st.high_interest_threshold && <div className="di"><div className="di-label">High Int. Threshold</div><div className="di-value">{fmt(st.high_interest_threshold)}</div></div>}
+            {st.fine_review_date && <div className="di"><div className="di-label">Fine Review</div><div className="di-value">{fmtD(st.fine_review_date)}</div></div>}
+          </div>
+          {st.fines_json && (
+            <div style={{marginTop:'10px'}}>
+              <div style={{fontSize:'11px',color:'var(--gold)',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'4px'}}>Fine Rules</div>
+              <div style={{fontSize:'12px',color:'var(--text-dim)',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{feeInfo(st)}</div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="form-group"><label className="form-label">Type</label>
-        <select className="fs" value={type} onChange={e=>setType(e.target.value)}>
+        <select className="fs" value={type} onChange={e=>{setType(e.target.value);setShowWheel(false);}}>
           <option value="Payment">Payment (reduces balance)</option>
           <option value="Interest">Interest (% of balance)</option>
           <option value="Fine">Fine</option>
@@ -535,10 +1028,106 @@ function AddTx({ profiles, onDone }) {
           <option value="Debt Game">Debt Game</option>
         </select>
       </div>
+
       {isInt ? (
-        <div className="form-group"><label className="form-label">Interest %</label>
-          <input className="fi" type="number" inputMode="decimal" placeholder="e.g. 25" value={pct} onChange={e=>setPct(e.target.value)} />
-          {pr&&pct&&<div className="form-hint">{pct}% of {fmt(bal)} = {fmt(ca)}</div>}
+        <div>
+          <div className="form-group"><label className="form-label">Interest %</label>
+            <input className="fi" type="number" inputMode="decimal" placeholder="e.g. 25" value={pct} onChange={e=>setPct(e.target.value)} />
+            {pr&&pct&&<div className="form-hint">{pct}% of {fmt(bal)} = {fmt(ca)}</div>}
+          </div>
+
+          {sid && (
+            <div style={{marginBottom:'16px'}}>
+              <button className="btn btn-outline btn-sm" onClick={()=>setShowWheel(!showWheel)} style={{width:'100%',marginBottom:'12px'}}>
+                {showWheel ? '✕ Hide Wheel' : '🎡 Spin Interest Wheel'}
+              </button>
+
+              {showWheel && (
+                <div>
+                  <div className="wheel-tabs">
+                    <button className={`wheel-tab ${wheelMode==='debtor'?'active':''}`} onClick={()=>{setWheelMode('debtor');setSelPreset(null);}}>Debtor's Wheel</button>
+                    <button className={`wheel-tab ${wheelMode==='custom'?'active':''}`} onClick={()=>{setWheelMode('custom');setSelPreset(null);}}>Custom</button>
+                    <button className={`wheel-tab ${wheelMode==='presets'?'active':''}`} onClick={()=>setWheelMode('presets')}>Presets</button>
+                  </div>
+
+                  {wheelMode === 'debtor' && (
+                    <div>
+                      {st ? (
+                        <div>
+                          {parseFloat(st.high_interest_threshold) > 0 && bal >= parseFloat(st.high_interest_threshold) && (
+                            <div className="alert-item warn" style={{marginBottom:'12px',cursor:'default'}}>
+                              <span className="alert-icon">⚡</span>
+                              <span className="alert-text">Balance ({fmt(bal)}) is at/above high interest threshold ({fmt(st.high_interest_threshold)}). Using <strong>high interest wheel</strong>.</span>
+                            </div>
+                          )}
+                          {getWheelSegs().length > 0 ? (
+                            <SpinWheel segments={getWheelSegs()} onResult={handleWheelResult} balance={bal} />
+                          ) : (
+                            <div className="empty-state">Couldn't parse wheel values from: "{st.interest_wheel || 'not set'}".<br/>Try Custom wheel instead.</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="empty-state">No stipulations found for this debtor.</div>
+                      )}
+                    </div>
+                  )}
+
+                  {wheelMode === 'custom' && (
+                    <div>
+                      <div style={{fontSize:'12px',color:'var(--text-dim)',marginBottom:'10px'}}>Enter percentages for each wheel segment:</div>
+                      {customSegs.map((s,i) => (
+                        <div className="cw-row" key={i}>
+                          <input className="fi" type="number" inputMode="decimal" value={s} onChange={e=>{const n=[...customSegs];n[i]=e.target.value;setCustomSegs(n);}} placeholder="%" />
+                          <span style={{color:'var(--text-muted)',fontSize:'13px'}}>%</span>
+                          {customSegs.length > 2 && <button className="cw-del" onClick={()=>{const n=customSegs.filter((_,j)=>j!==i);setCustomSegs(n);}}>×</button>}
+                        </div>
+                      ))}
+                      <button className="cw-add" onClick={()=>setCustomSegs([...customSegs,'0'])}>+ Add Segment</button>
+
+                      {!showSavePreset && (
+                        <button className="btn btn-outline btn-sm" onClick={()=>setShowSavePreset(true)} style={{width:'100%',marginBottom:'12px'}}>💾 Save as Preset</button>
+                      )}
+                      {showSavePreset && (
+                        <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}>
+                          <input className="fi" placeholder="Preset name..." value={newPresetName} onChange={e=>setNewPresetName(e.target.value)} style={{flex:1}} />
+                          <button className="btn btn-sm" onClick={savePreset}>Save</button>
+                          <button className="btn btn-sm btn-outline" onClick={()=>setShowSavePreset(false)}>Cancel</button>
+                        </div>
+                      )}
+
+                      {getWheelSegs().length >= 2 && (
+                        <SpinWheel segments={getWheelSegs()} onResult={handleWheelResult} balance={bal} />
+                      )}
+                    </div>
+                  )}
+
+                  {wheelMode === 'presets' && (
+                    <div>
+                      {presets.length === 0 ? (
+                        <div className="empty-state">No saved presets yet. Create one in the Custom tab.</div>
+                      ) : (
+                        <div className="preset-list">
+                          {presets.map((p,i) => (
+                            <div className={`preset-chip ${selPreset===i?'selected':''}`} key={i} onClick={()=>setSelPreset(i)}>
+                              <div>
+                                <div className="preset-name">{p.name}</div>
+                                <div className="preset-vals">{p.segments.join('%, ')}%</div>
+                              </div>
+                              <button className="preset-del" onClick={(e)=>{e.stopPropagation();deletePreset(i);}}>🗑</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {selPreset !== null && getWheelSegs().length >= 2 && (
+                        <SpinWheel segments={getWheelSegs()} onResult={handleWheelResult} balance={bal} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="form-group"><label className="form-label">Amount (£)</label>
@@ -548,7 +1137,7 @@ function AddTx({ profiles, onDone }) {
       <div className="form-group"><label className="form-label">Admin Fee</label>
         <label className="cb-row"><input type="checkbox" checked={addFee} onChange={e=>setAddFee(e.target.checked)} /><span>Add admin fee</span></label>
         {addFee&&<input className="fi" type="number" inputMode="decimal" placeholder="5.00" value={feeAmt} onChange={e=>setFeeAmt(e.target.value)} style={{marginTop:'8px'}} />}
-        <div className="form-hint">Fee adds to balance. Check debtor profile for complex fee rules.</div>
+        {st && st.admin_fee && <div className="form-hint">Rule: {st.admin_fee}</div>}
       </div>
       <div className="form-group"><label className="form-label">Notes (optional)</label>
         <textarea className="ft" placeholder="Any notes..." value={notes} onChange={e=>setNotes(e.target.value)} />
@@ -570,22 +1159,99 @@ function AddTx({ profiles, onDone }) {
   );
 }
 
+// ========== SETTINGS PAGE ==========
+function Settings({ onLogout }) {
+  const [curPw, setCurPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confPw, setConfPw] = useState('');
+  const [ld, setLd] = useState(false);
+  const [err, setErr] = useState('');
+  const [ok, setOk] = useState('');
+
+  const doPwChange = async () => {
+    setErr(''); setOk('');
+    if (!newPw || !confPw) { setErr('Please fill in both password fields.'); return; }
+    if (newPw.length < 6) { setErr('Password must be at least 6 characters.'); return; }
+    if (newPw !== confPw) { setErr('New passwords don\'t match.'); return; }
+    setLd(true);
+    try {
+      await changePassword(newPw);
+      setOk('✅ Password changed successfully!');
+      setCurPw(''); setNewPw(''); setConfPw('');
+    } catch(e) {
+      setErr('Error: ' + e.message);
+    }
+    setLd(false);
+  };
+
+  return (
+    <div className="page">
+      <div className="page-title">Settings</div>
+
+      <div className="settings-section">
+        <div className="settings-title">🔐 Change Password</div>
+        <div className="form-group">
+          <label className="form-label">New Password</label>
+          <input className="fi" type="password" placeholder="Enter new password" value={newPw} onChange={e=>setNewPw(e.target.value)} autoComplete="new-password" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Confirm New Password</label>
+          <input className="fi" type="password" placeholder="Confirm new password" value={confPw} onChange={e=>setConfPw(e.target.value)} autoComplete="new-password" />
+        </div>
+        {err && <div className="error-msg" style={{marginBottom:'12px'}}>{err}</div>}
+        {ok && <div className="success-msg" style={{marginBottom:'12px'}}>{ok}</div>}
+        <button className="btn" onClick={doPwChange} disabled={ld} style={{width:'100%'}}>{ld?<span className="spinner"/>:'Update Password'}</button>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-title">👤 Account</div>
+        <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'16px'}}>
+          Signed in as admin<br/>
+          <span style={{fontSize:'11px',color:'var(--text-muted)'}}>User ID: {ADMIN_ID.slice(0,8)}...</span>
+        </div>
+        <button className="btn btn-outline" onClick={onLogout} style={{width:'100%'}}>Sign Out</button>
+      </div>
+    </div>
+  );
+}
+
+// ========== MAIN APP ==========
 function App() {
   const [auth, setAuth] = useState(false);
   const [chk, setChk] = useState(true);
   const [pg, setPg] = useState('dashboard');
   const [profs, setProfs] = useState([]);
   const [act, setAct] = useState([]);
+  const [stips, setStips] = useState([]);
   const [sel, setSel] = useState(null);
   const [dl, setDl] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(false);
+  const [usernames, setUsernames] = useState({});
+  const [alerts, setAlerts] = useState([]);
 
   useEffect(() => { (async()=>{ if(await refresh()) setAuth(true); setChk(false); })(); }, []);
 
   const load = useCallback(async () => {
     setDl(true);
-    try { const [p,a] = await Promise.all([getProfiles(), getAllLedger(100)]); setProfs(p||[]); setAct(a||[]); } catch(e) { console.error(e); }
+    try {
+      const [p, a, s] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips()]);
+      setProfs(p||[]);
+      setAct(a||[]);
+      setStips(s||[]);
+      // Generate alerts
+      const al = generateAlerts(p||[], s||[], a||[]);
+      setAlerts(al);
+    } catch(e) { console.error(e); }
     setDl(false);
   }, []);
+
+  // Build usernames map from profiles (uses `username` column in profiles table)
+  useEffect(() => {
+    if (!auth || profs.length === 0) return;
+    const map = {};
+    profs.forEach(p => { if (p.username) map[p.debtor_number] = p.username; });
+    setUsernames(map);
+  }, [auth, profs]);
 
   useEffect(() => { if(auth) load(); }, [auth, load]);
 
@@ -599,20 +1265,30 @@ function App() {
     <div className="app-shell">
       <header className="header">
         <div className="header-brand"><span className="header-crown">👑</span><span className="header-title">Truee Empire</span></div>
-        <button className="header-logout" onClick={lo}>Sign Out</button>
+        <div className="header-actions">
+          <button className={`header-btn ${privacyMode?'active':''}`} onClick={()=>setPrivacyMode(!privacyMode)} title={privacyMode?'Show names':'Hide names'}>
+            {privacyMode ? '🙈' : '👁'}
+          </button>
+          <button className="header-logout" onClick={lo}>Sign Out</button>
+        </div>
       </header>
       {dl&&profs.length===0 ? <div className="loading-screen" style={{minHeight:'60vh'}}><div className="spinner"/><span>Loading empire data...</span></div> : <>
-        {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} />}
-        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} />}
-        {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} />}
-        {pg==='add'&&<AddTx profiles={profs} onDone={load} />}
-        {pg==='activity'&&<div className="page"><div className="page-title">Activity Feed</div><Feed items={act} onTap={vd} limit={100} /></div>}
+        {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} />}
+        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
+        {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
+        {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
+        {pg==='activity'&&<div className="page"><div className="page-title">Activity Feed</div><Feed items={act} onTap={vd} limit={100} privacyMode={privacyMode} /></div>}
+        {pg==='settings'&&<Settings onLogout={lo} />}
       </>}
       <nav className="bottom-nav">
-        <button className={`nav-item ${pg==='dashboard'?'active':''}`} onClick={()=>setPg('dashboard')}><span className="nav-icon">📊</span><span className="nav-label">Home</span></button>
+        <button className={`nav-item ${pg==='dashboard'?'active':''}`} onClick={()=>setPg('dashboard')}>
+          <span className="nav-icon">📊</span><span className="nav-label">Home</span>
+          {alerts.length>0&&pg!=='dashboard'&&<span className="badge">{alerts.length}</span>}
+        </button>
         <button className={`nav-item ${pg==='debtors'||pg==='detail'?'active':''}`} onClick={()=>setPg('debtors')}><span className="nav-icon">👥</span><span className="nav-label">Debtors</span></button>
         <button className={`nav-item ${pg==='add'?'active':''}`} onClick={()=>setPg('add')}><span className="nav-icon">➕</span><span className="nav-label">Add</span></button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
+        <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
     </div>
   );
