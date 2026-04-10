@@ -453,7 +453,25 @@ function feeInfo(s) {
   if (s.admin_fee) p.push(`Admin fee: ${s.admin_fee}`);
   if (s.late_fee) p.push(`Late fee: ${s.late_fee}`);
   const f = pj(s.fines_json);
-  if (f) { if (Array.isArray(f)) f.forEach(x => p.push(typeof x==='string'?x:JSON.stringify(x))); else if (typeof f==='object') Object.entries(f).forEach(([k,v]) => p.push(`${k}: ${v}`)); }
+  if (f) {
+    if (Array.isArray(f)) {
+      f.forEach(x => {
+        if (typeof x === 'string') p.push(x);
+        else if (typeof x === 'object' && x !== null) {
+          // Format objects like {name:"Trapped Tax", amount:"Discretionary", detail:"..."}
+          const name = x.name || x.fine || x.type || 'Fine';
+          const amount = x.amount || x.value || '';
+          const detail = x.detail || x.trigger || x.description || '';
+          let line = `${name}`;
+          if (amount) line += ` — ${amount}`;
+          if (detail && detail !== amount) line += ` (${detail})`;
+          p.push(line);
+        } else p.push(String(x));
+      });
+    } else if (typeof f === 'object') {
+      Object.entries(f).forEach(([k,v]) => p.push(`${k}: ${v}`));
+    }
+  }
   return p.length ? p.join('\n') : null;
 }
 
@@ -751,7 +769,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         {pr.member_since&&<div className="di"><div className="di-label">Member Since</div><div className="di-value">{fmtD(pr.member_since)}</div></div>}
       </div>
 
-      {fr&&<div className="fee-box"><div className="fee-title">💰 Fee & Fine Rules</div><div className="fee-text">{fr}</div></div>}
+      {fr&&<div className="fee-box"><div className="fee-title">💰 Fee & Fine Rules</div>{fr.split('\n').map((line,i)=>(<div key={i} style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,padding:'3px 0',borderBottom:i<fr.split('\n').length-1?'1px solid rgba(201,168,76,0.1)':'none',display:'flex',gap:'8px'}}><span style={{color:'var(--gold)',flexShrink:0}}>•</span><span>{line}</span></div>))}</div>}
       {cl&&<div className="clause-box"><div className="clause-title">📜 Special Clauses</div><div className="clause-text">{cl}</div></div>}
 
       <div className="tabs">
@@ -1010,10 +1028,15 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
             {st.high_interest_threshold && <div className="di"><div className="di-label">High Int. Threshold</div><div className="di-value">{fmt(st.high_interest_threshold)}</div></div>}
             {st.fine_review_date && <div className="di"><div className="di-label">Fine Review</div><div className="di-value">{fmtD(st.fine_review_date)}</div></div>}
           </div>
-          {st.fines_json && (
+          {(st.fines_json || st.admin_fee || st.late_fee) && (
             <div style={{marginTop:'10px'}}>
-              <div style={{fontSize:'11px',color:'var(--gold)',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'4px'}}>Fine Rules</div>
-              <div style={{fontSize:'12px',color:'var(--text-dim)',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{feeInfo(st)}</div>
+              <div style={{fontSize:'11px',color:'var(--gold)',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'6px'}}>Fine Rules</div>
+              {feeInfo(st)?.split('\n').map((line,i) => (
+                <div key={i} style={{fontSize:'12px',color:'var(--text-dim)',lineHeight:1.6,padding:'3px 0',borderBottom:'1px solid var(--border)',display:'flex',gap:'6px'}}>
+                  <span style={{color:'var(--gold)',flexShrink:0}}>•</span>
+                  <span>{line}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1215,6 +1238,169 @@ function Settings({ onLogout }) {
   );
 }
 
+// ========== FAQ / GUIDE ==========
+function Guide() {
+  const [open, setOpen] = useState(null);
+  const toggle = (i) => setOpen(open === i ? null : i);
+
+  const faqs = [
+    {
+      q: '🆕 How do I onboard a new debtor?',
+      a: `1. Complete their contract in Notion (Active Debt Contracts database)
+2. Add their profile to Supabase — run this SQL in the SQL Editor:
+
+INSERT INTO profiles (id, debtor_number, display_name, username, tier, standing, contract_total, current_balance, fines_accrued, token_balance, tokens_earned, member_since, payment_streak, compliance_rating, is_active, weekly_payment)
+VALUES (gen_random_uuid(), '019', 'Their Name', 'their_username', 'Bronze', 'Good', 500, 350, 0, 0, 0, now(), 0, 100, true, 50);
+
+3. Add their stipulations — run this SQL:
+
+INSERT INTO stipulations (id, profile_id, weekly_payment, payment_day, deposit_paid, contract_value, contract_start, interest_wheel, high_interest_wheel, high_interest_threshold, late_fee, admin_fee)
+VALUES (gen_random_uuid(), (SELECT id FROM profiles WHERE debtor_number = '019'), 50, 'Every Friday', 150, 500, now(), '0-30% random wheel spin each Sunday', 'Not specified', 0, 'Auto-escalation after 2 late weeks', '$5 per line');
+
+4. Adjust the values above to match their actual contract terms.
+5. Their profile will appear in the admin panel immediately.
+6. To show on the Wix portal, add them to the DebtProfiles CMS collection.`
+    },
+    {
+      q: '📝 How do I add or edit clauses for a debtor?',
+      a: `Clauses are stored in the stipulations table in two JSON fields:
+
+• fines_json — array of fine rules
+• special_clauses_json — array of special clauses
+
+To update, run SQL like this in the SQL Editor:
+
+UPDATE stipulations
+SET special_clauses_json = '[
+  "Min 12 weeks contract",
+  "Cannot pay off without Goddess permission",
+  "NEW CLAUSE: Must post evidence on X within 24hrs"
+]'
+WHERE profile_id = (SELECT id FROM profiles WHERE debtor_number = '008');
+
+For fines, use this format:
+
+UPDATE stipulations
+SET fines_json = '[
+  {"name": "Trapped Tax", "amount": "Discretionary", "detail": "When weak about spreadsheet"},
+  {"name": "New Fine", "amount": "£50", "detail": "Your trigger here"}
+]'
+WHERE profile_id = (SELECT id FROM profiles WHERE debtor_number = '008');
+
+You can also edit directly in Supabase Table Editor → stipulations table.`
+    },
+    {
+      q: '🎡 How does the interest wheel work?',
+      a: `When you select "Interest" as the transaction type:
+
+1. A "Spin Interest Wheel" button appears
+2. Choose a mode:
+   • Debtor's Wheel — auto-reads their wheel settings from stipulations
+   • Custom — enter your own percentages
+   • Presets — use a saved wheel configuration
+3. Spin the wheel — it animates and lands on a random segment
+4. The result auto-fills the interest % field
+5. Submit the transaction as normal
+
+The wheel checks high_interest_threshold — if the debtor's balance is above this, it uses high_interest_wheel instead.
+
+Tip: Save frequently used wheels as presets so you don't have to re-enter them.`
+    },
+    {
+      q: '💰 How do transactions work?',
+      a: `On the Add Transaction page:
+
+• Payment — reduces balance. Awards tokens automatically.
+• Interest — adds % of current balance. Use the wheel or type manually.
+• Fine — flat amount added to balance.
+• Deposit — flat amount added to balance.
+• Debt Game — flat amount added to balance.
+
+Admin fees are auto-filled from the debtor's stipulations but you can edit the amount.
+
+The preview box shows the calculation before you submit. Wix portal balances update automatically via the database trigger.`
+    },
+    {
+      q: '🔔 What do the dashboard alerts mean?',
+      a: `Red alerts (🚨) — Payment overdue. Shows if 7+ days since last payment.
+Yellow alerts (⚠️) — Fine review date has passed. Time to review and update fines.
+Yellow alerts (📈) — Balance exceeds 150% of contract value.
+
+Tap any alert to jump to that debtor's profile.`
+    },
+    {
+      q: '👁 What does the privacy toggle do?',
+      a: `The eye icon in the header hides all real names and usernames. Only debtor numbers show. Use it when:
+
+• Screensharing or on a call
+• In a public place
+• Recording content near your screen
+
+Toggle it back to see names again. The setting resets when you refresh.`
+    },
+    {
+      q: '🪙 How are tokens calculated?',
+      a: `Tokens are automatically awarded on payments:
+
+• Base: 1 token per £1.50 paid
+• Streak bonus: 1.5x multiplier after 4+ consecutive weekly payments
+• Overpayment bonus: 2x rate on any amount above their weekly payment
+
+Example: £75 payment with £50/wk weekly, 4-week streak:
+• First £50: floor(50/1.5) × 1.5 = 49 tokens
+• Extra £25: floor(25/1.5) × 2 × 1.5 = 24 bonus tokens
+• Total: ~73 tokens`
+    },
+    {
+      q: '🌐 How does the Wix portal sync work?',
+      a: `When you update a debtor's balance via a transaction:
+
+1. The profiles table updates in Supabase
+2. A database trigger (sync_balance_to_wix) fires automatically
+3. It sends the new balance to the Wix CMS via the Bulk Patch API
+4. Only currentBalance is updated — all other Wix fields are preserved
+
+If a balance doesn't update on the portal, check:
+• The debtor has a matching entry in the Wix DebtProfiles collection
+• Their Wix ID matches (Supabase "008" → Wix "D008")
+• The Wix API key in app_settings is still valid`
+    },
+    {
+      q: '📊 Where is data stored?',
+      a: `• Supabase profiles — debtor info, balances, names, usernames
+• Supabase ledger — all transactions
+• Supabase token_transactions — token awards
+• Supabase stipulations — contract terms, wheel settings, fee rules, fines
+• Supabase app_settings — Wix API key, wheel presets
+• Notion Debtor Command Centre — weekly management, checklists, notes
+• Notion Active Debt Contracts — full contract details, personal info
+• Wix DebtProfiles CMS — public-facing portal data`
+    }
+  ];
+
+  return (
+    <div className="page">
+      <div className="page-title">📖 Admin Guide</div>
+      <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'20px'}}>Tap any question to expand the answer.</div>
+      <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+        {faqs.map((f,i) => (
+          <div key={i} style={{background:'var(--bg-card)',border:'1px solid '+(open===i?'var(--border-gold)':'var(--border)'),borderRadius:'var(--radius)',overflow:'hidden',transition:'border-color 0.2s'}}>
+            <div onClick={()=>toggle(i)} style={{padding:'14px 16px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:'14px',fontWeight:600}}>{f.q}</span>
+              <span style={{color:'var(--gold)',fontSize:'16px',transition:'transform 0.2s',transform:open===i?'rotate(180deg)':'rotate(0)'}}>{open===i?'▲':'▼'}</span>
+            </div>
+            {open===i && (
+              <div style={{padding:'0 16px 16px',fontSize:'13px',color:'var(--text-dim)',lineHeight:1.7,whiteSpace:'pre-wrap',borderTop:'1px solid var(--border)'}}>
+                {f.a}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ========== MAIN APP ==========
 function App() {
   const [auth, setAuth] = useState(false);
@@ -1279,6 +1465,7 @@ function App() {
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='activity'&&<div className="page"><div className="page-title">Activity Feed</div><Feed items={act} onTap={vd} limit={100} privacyMode={privacyMode} /></div>}
         {pg==='settings'&&<Settings onLogout={lo} />}
+        {pg==='guide'&&<Guide />}
       </>}
       <nav className="bottom-nav">
         <button className={`nav-item ${pg==='dashboard'?'active':''}`} onClick={()=>setPg('dashboard')}>
@@ -1288,6 +1475,7 @@ function App() {
         <button className={`nav-item ${pg==='debtors'||pg==='detail'?'active':''}`} onClick={()=>setPg('debtors')}><span className="nav-icon">👥</span><span className="nav-label">Debtors</span></button>
         <button className={`nav-item ${pg==='add'?'active':''}`} onClick={()=>setPg('add')}><span className="nav-icon">➕</span><span className="nav-label">Add</span></button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
+        <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
     </div>
