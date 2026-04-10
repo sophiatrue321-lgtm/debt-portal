@@ -1793,47 +1793,44 @@ function Guide() {
     {
       q: '🆕 How do I onboard a new debtor?',
       a: `1. Complete their contract in Notion (Active Debt Contracts database)
-2. Add their profile to Supabase — run this SQL in the SQL Editor:
+2. Go to the 🆕 Onboard tab in the admin panel
+3. Fill in their details:
+   • Debtor number (auto-suggested)
+   • Name, username, platform
+   • Contract value, deposit, weekly payment
+   • Interest wheel settings, fees
+4. Tap the Onboard button
 
-INSERT INTO profiles (id, debtor_number, display_name, username, tier, standing, contract_total, current_balance, fines_accrued, token_balance, tokens_earned, member_since, payment_streak, compliance_rating, is_active, weekly_payment)
-VALUES (gen_random_uuid(), '019', 'Their Name', 'their_username', 'Bronze', 'Good', 500, 350, 0, 0, 0, now(), 0, 100, true, 50);
+This automatically:
+   ✅ Creates their login account (d019@trueeempire.local)
+   ✅ Generates a temp password
+   ✅ Creates their Supabase profile
+   ✅ Creates their contract terms (stipulations)
+   ✅ Creates the opening ledger entry
+   ✅ Adds them to the Wix portal
 
-3. Add their stipulations — run this SQL:
+5. Copy the temp password shown and send it to them
+6. Go to their detail page to add fines and special clauses
 
-INSERT INTO stipulations (id, profile_id, weekly_payment, payment_day, deposit_paid, contract_value, contract_start, interest_wheel, high_interest_wheel, high_interest_threshold, late_fee, admin_fee)
-VALUES (gen_random_uuid(), (SELECT id FROM profiles WHERE debtor_number = '019'), 50, 'Every Friday', 150, 500, now(), '0-30% random wheel spin each Sunday', 'Not specified', 0, 'Auto-escalation after 2 late weeks', '$5 per line');
-
-4. Adjust the values above to match their actual contract terms.
-5. Their profile will appear in the admin panel immediately.
-6. To show on the Wix portal, add them to the DebtProfiles CMS collection.`
+No SQL needed — everything is done from the admin panel.`
     },
     {
       q: '📝 How do I add or edit clauses for a debtor?',
-      a: `Clauses are stored in the stipulations table in two JSON fields:
+      a: `Go to the debtor's detail page in the admin panel:
 
-• fines_json — array of fine rules
-• special_clauses_json — array of special clauses
+1. Tap on the debtor in the Debtors list
+2. Scroll down to the Fee & Fine Rules box
+3. Tap "Edit" to open the inline editor
+4. Add, edit, or remove fines — each has name, amount, and trigger fields
+5. Tap "Save Fines"
 
-To update, run SQL like this in the SQL Editor:
+For Special Clauses:
+1. Scroll to the Special Clauses box
+2. Tap "Edit"
+3. Add, edit, or remove clauses
+4. Tap "Save Clauses"
 
-UPDATE stipulations
-SET special_clauses_json = '[
-  "Min 12 weeks contract",
-  "Cannot pay off without Goddess permission",
-  "NEW CLAUSE: Must post evidence on X within 24hrs"
-]'
-WHERE profile_id = (SELECT id FROM profiles WHERE debtor_number = '008');
-
-For fines, use this format:
-
-UPDATE stipulations
-SET fines_json = '[
-  {"name": "Trapped Tax", "amount": "Discretionary", "detail": "When weak about spreadsheet"},
-  {"name": "New Fine", "amount": "£50", "detail": "Your trigger here"}
-]'
-WHERE profile_id = (SELECT id FROM profiles WHERE debtor_number = '008');
-
-You can also edit directly in Supabase Table Editor → stipulations table.`
+Changes save directly to Supabase — no SQL needed.`
     },
     {
       q: '🎡 How does the interest wheel work?',
@@ -1899,15 +1896,17 @@ Example: £75 payment with £50/wk weekly, 4-week streak:
     },
     {
       q: '🌐 How does the Wix portal sync work?',
-      a: `When you update a debtor's balance via a transaction:
+      a: `New debtors:
+When you onboard a debtor via the 🆕 Onboard tab, their Wix CMS entry is created automatically with their name, balance, tier, and status.
 
+Balance updates:
+When you add a transaction via the ➕ Add tab:
 1. The profiles table updates in Supabase
 2. A database trigger (sync_balance_to_wix) fires automatically
 3. It sends the new balance to the Wix CMS via the Bulk Patch API
 4. Only currentBalance is updated — all other Wix fields are preserved
 
 If a balance doesn't update on the portal, check:
-• The debtor has a matching entry in the Wix DebtProfiles collection
 • Their Wix ID matches (Supabase "008" → Wix "D008")
 • The Wix API key in app_settings is still valid`
     },
