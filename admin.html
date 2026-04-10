@@ -994,6 +994,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const [amt, setAmt] = useState('');
   const [pct, setPct] = useState('');
   const [notes, setNotes] = useState('');
+  const [payMethod, setPayMethod] = useState('');
   const [addFee, setAddFee] = useState(true);
   const [feeAmt, setFeeAmt] = useState('5');
   const [ld, setLd] = useState(false);
@@ -1083,7 +1084,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
     setLd(true); setErr(''); setOk('');
     try {
       const now = new Date().toISOString();
-      await insertLedger({ profile_id:sid, entry_type:type, entry_date:now, amount:isPay?-ca:ca, balance_after:nb, description:notes||null, admin_fee:fee>0?fee:0, created_at:now, tokens_awarded:te>0?te:0 });
+      await insertLedger({ profile_id:sid, entry_type:type, entry_date:now, amount:isPay?-ca:ca, balance_after:nb, description:notes||null, admin_fee:fee>0?fee:0, created_at:now, tokens_awarded:te>0?te:0, payment_method:payMethod||null });
       await patchProfile(sid, { current_balance: nb });
       if (te>0) {
         const ct=parseFloat(pr.token_balance)||0; const ce=parseFloat(pr.tokens_earned)||0;
@@ -1091,7 +1092,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
         await insertTokenTx({ profile_id:sid, transaction_date:now, amount:te, balance_after:ct+te, description:`${te} tokens for ${fmt(ca)} payment`, created_at:now });
       }
       setOk(`✅ ${type} of ${fmt(ca)}${fee>0?` + ${fmt(fee)} fee`:''} recorded for ${privacyMode ? pr.debtor_number : pr.display_name}. New balance: ${fmt(nb)}${te>0?`. 🪙 ${te} tokens!`:''}`);
-      setAmt(''); setPct(''); setNotes(''); setShowWheel(false);
+      setAmt(''); setPct(''); setNotes(''); setPayMethod(''); setShowWheel(false);
       onDone?.();
     } catch(e) { setErr('Error: '+e.message); }
     setLd(false);
@@ -1254,6 +1255,20 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
         <label className="cb-row"><input type="checkbox" checked={addFee} onChange={e=>setAddFee(e.target.checked)} /><span>Add admin fee</span></label>
         {addFee&&<input className="fi" type="number" inputMode="decimal" placeholder="5.00" value={feeAmt} onChange={e=>setFeeAmt(e.target.value)} style={{marginTop:'8px'}} />}
         {st && st.admin_fee && <div className="form-hint">Rule: {st.admin_fee}</div>}
+      </div>
+      <div className="form-group"><label className="form-label">Platform</label>
+        <select className="fs" value={payMethod} onChange={e=>setPayMethod(e.target.value)}>
+          <option value="">Select platform...</option>
+          <option value="LoyalFans">LoyalFans</option>
+          <option value="iWantClips">iWantClips</option>
+          <option value="Clips4Sale">Clips4Sale</option>
+          <option value="MintStars">MintStars</option>
+          <option value="FinMessage">FinMessage</option>
+          <option value="X/Twitter">X / Twitter</option>
+          <option value="Throne">Throne</option>
+          <option value="Wishtender">Wishtender</option>
+          <option value="Other">Other</option>
+        </select>
       </div>
       <div className="form-group"><label className="form-label">Notes (optional)</label>
         <textarea className="ft" placeholder="Any notes..." value={notes} onChange={e=>setNotes(e.target.value)} />
