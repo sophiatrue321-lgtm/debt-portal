@@ -1434,219 +1434,352 @@ function EditClauses({ st, pid, onSaved }) {
   );
 }
 
-// ========== ONBOARD FROM NOTION ==========
+// ========== ONBOARD NEW DEBTOR ==========
 function Onboard({ profiles, onDone }) {
-  const [loading, setLoading] = useState(false);
-  const [notionData, setNotionData] = useState(null);
-  const [importing, setImporting] = useState({});
-  const [imported, setImported] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
 
-  const existingIds = new Set(profiles.map(p => 'D' + p.debtor_number));
+  // Profile fields
+  const [debtorNum, setDebtorNum] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
+  const [tier, setTier] = useState('Bronze');
+  const [contractTotal, setContractTotal] = useState('');
+  const [deposit, setDeposit] = useState('');
+  const [weeklyPayment, setWeeklyPayment] = useState('');
 
-  const pullFromNotion = async () => {
-    setLoading(true); setErr(''); setNotionData(null);
+  // Stipulations
+  const [paymentDay, setPaymentDay] = useState('Every Friday');
+  const [interestWheel, setInterestWheel] = useState('');
+  const [highInterestWheel, setHighInterestWheel] = useState('');
+  const [highInterestThreshold, setHighInterestThreshold] = useState('');
+  const [adminFee, setAdminFee] = useState('');
+  const [lateFee, setLateFee] = useState('');
+  const [platform, setPlatform] = useState('LoyalFans');
+  const [debtLevel, setDebtLevel] = useState('Beginner');
+  const [notes, setNotes] = useState('');
+
+  // Auto-suggest next debtor number
+  useEffect(() => {
+    if (profiles.length > 0 && !debtorNum) {
+      const nums = profiles.map(p => parseInt(p.debtor_number) || 0);
+      const next = Math.max(...nums) + 1;
+      setDebtorNum(String(next).padStart(3, '0'));
+    }
+  }, [profiles]);
+
+  const cv = parseFloat(contractTotal) || 0;
+  const dp = parseFloat(deposit) || 0;
+  const startingBalance = cv - dp;
+
+  // Service role key loaded from app_settings (not hardcoded for security)
+  const [srvKey, setSrvKey] = useState(null);
+  const WIX_SITE = '6830a889-5f45-45ed-b828-cc5bc79fee83';
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await sf('/rest/v1/app_settings?key=eq.supabase_service_key&select=value');
+        if (r?.[0]?.value) setSrvKey(r[0].value);
+      } catch(e) { console.log('Service key not found in app_settings'); }
+    })();
+  }, []);
+
+  const genPw = (dn) => {
+    const c = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let r = ''; for (let i = 0; i < 4; i++) r += c[Math.floor(Math.random() * c.length)];
+    return `Truee_D${dn}_${r}!`;
+  };
+
+  const doOnboard = async () => {
+    setErr(''); setOk('');
+    if (!srvKey) { setErr('Service key not loaded. Add your Supabase service_role key to app_settings (key: supabase_service_key).'); return; }
+    if (!debtorNum.trim()) { setErr('Debtor number is required'); return; }
+    if (!displayName.trim()) { setErr('Name is required'); return; }
+    if (cv <= 0) { setErr('Contract value must be greater than 0'); return; }
+
+    const dn = debtorNum.trim();
+    const existing = profiles.find(p => p.debtor_number === dn);
+    if (existing) { setErr(`Debtor number ${dn} already exists (${existing.display_name})`); return; }
+
+    setSaving(true);
+    const tempPw = genPw(dn);
+    const email = `d${dn}@trueeempire.local`;
+    let steps = [];
+
     try {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      // 1. Create Supabase auth user
+      const authRes = await fetch(`${SB_URL}/auth/v1/admin/users`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}` },
+        body: JSON.stringify({ email, password: tempPw, email_confirm: true })
+      });
+      const authData = await authRes.json();
+      if (!authRes.ok) throw new Error('Auth: ' + (authData.msg || authData.message || 'Failed'));
+      const authUserId = authData.id;
+      steps.push('✅ Login account created');
+
+      // 2. Update profile (auth creates a row, we patch it with debtor data)
+      await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${authUserId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}`, 'Prefer': 'return=representation' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
-          system: 'You query a Notion database and return ONLY a JSON array. No markdown, no explanation, no backticks. Each object must have these exact keys: debt_id, name, username, twitter, platform, weekly_payment, deposit_paid, contract_value, interest_wheel, high_interest_wheel, high_interest_threshold, admin_fee, late_fee, fine_range, special_clauses, payment_day, status, debt_level, start_date, minimum_debt. Use empty string for missing values. Return ONLY the JSON array.',
-          messages: [
-            { role: 'user', content: 'Query the Active Debt Contracts Notion database and return ALL contracts with status "In progress" as a JSON array. Include every field listed in the system prompt.' }
-          ],
-          mcp_servers: [
-            { type: 'url', url: 'https://mcp.notion.com/mcp', name: 'notion' }
-          ]
+          debtor_number: dn,
+          display_name: displayName.trim(),
+          username: username.trim() || null,
+          tier: tier,
+          standing: 'Good',
+          contract_total: cv,
+          current_balance: startingBalance,
+          fines_accrued: 0,
+          token_balance: 0,
+          tokens_earned: 0,
+          member_since: new Date().toISOString().split('T')[0],
+          payment_streak: 0,
+          compliance_rating: 100,
+          is_active: true,
+          weekly_payment: parseFloat(weeklyPayment) || 0,
+          updated_at: new Date().toISOString()
         })
       });
-      const data = await resp.json();
+      steps.push('✅ Profile created');
 
-      // Extract text from response blocks
-      let jsonStr = '';
-      if (data.content) {
-        // Find MCP tool results first
-        const toolResults = data.content.filter(b => b.type === 'mcp_tool_result');
-        const textBlocks = data.content.filter(b => b.type === 'text');
+      // 3. Create stipulations
+      await fetch(`${SB_URL}/rest/v1/stipulations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}`, 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          profile_id: authUserId,
+          weekly_payment: parseFloat(weeklyPayment) || 0,
+          payment_day: paymentDay,
+          deposit_paid: dp,
+          contract_value: cv,
+          contract_start: new Date().toISOString().split('T')[0],
+          interest_wheel: interestWheel || '',
+          high_interest_wheel: highInterestWheel || '',
+          high_interest_threshold: parseFloat(highInterestThreshold) || 0,
+          late_fee: lateFee || '',
+          admin_fee: adminFee || '',
+          fines_json: '[]',
+          special_clauses_json: '[]',
+          notes: notes || '',
+          low_wheel_spins_used: 0
+        })
+      });
+      steps.push('✅ Contract terms saved');
 
-        // The last text block usually has the JSON
-        for (const block of textBlocks) {
-          if (block.text && (block.text.trim().startsWith('[') || block.text.includes('"debt_id"'))) {
-            jsonStr = block.text;
-            break;
-          }
-        }
-        // Fallback: try all text content
-        if (!jsonStr) {
-          jsonStr = textBlocks.map(b => b.text || '').join('\n');
-        }
-      }
+      // 4. Create initial ledger entry
+      const now = new Date().toISOString();
+      await fetch(`${SB_URL}/rest/v1/ledger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}`, 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          profile_id: authUserId,
+          entry_type: 'Debt Game',
+          entry_date: now,
+          amount: startingBalance,
+          balance_after: startingBalance,
+          description: `Contract started — ${fmt(cv)} debt, ${fmt(dp)} deposit`,
+          admin_fee: 0,
+          created_at: now,
+          tokens_awarded: 0
+        })
+      });
+      steps.push('✅ Opening ledger entry created');
 
-      // Clean and parse
-      jsonStr = jsonStr.replace(/```json|```/g, '').trim();
-      const contracts = JSON.parse(jsonStr);
-      setNotionData(contracts);
-    } catch(e) {
-      console.error('Notion pull error:', e);
-      setErr('Failed to pull from Notion. Error: ' + e.message);
-    }
-    setLoading(false);
-  };
-
-  const importDebtor = async (contract) => {
-    const did = contract.debt_id;
-    if (!did) return;
-    setImporting(prev => ({...prev, [did]: true}));
-
-    try {
-      // Strip D prefix for debtor_number
-      const dn = did.replace(/^D/i, '').replace(/^0+/, '').padStart(3, '0');
-
-      // Parse fines from fine_range string
-      let finesJson = '[]';
-      if (contract.fine_range) {
-        const fineNames = contract.fine_range.split(/,\s*/);
-        const fines = fineNames.map(f => {
-          const parts = f.match(/^(.+?)(?:\s*[\$£](\d+[\.\d]*))?$/);
-          return { name: parts ? parts[1].trim() : f.trim(), amount: 'See contract', detail: '' };
+      // 5. Create Wix CMS entry
+      try {
+        const wixKeyRes = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.wix_api_key&select=value`, {
+          headers: { 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}` }
         });
-        finesJson = JSON.stringify(fines);
+        const wixKeyData = await wixKeyRes.json();
+        const wixApiKey = wixKeyData?.[0]?.value;
+
+        if (wixApiKey) {
+          const wixRes = await fetch(`https://www.wixapis.com/wix-data/v2/items`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': wixApiKey,
+              'wix-site-id': WIX_SITE
+            },
+            body: JSON.stringify({
+              dataCollectionId: 'DebtProfiles',
+              dataItem: {
+                data: {
+                  debtorId: `D${dn}`,
+                  name: displayName.trim(),
+                  currentBalance: startingBalance,
+                  debtTier: tier,
+                  spendBadge: 'New',
+                  totalSpent: dp,
+                  status: 'Active'
+                }
+              }
+            })
+          });
+          if (wixRes.ok) {
+            steps.push('✅ Wix portal entry created');
+          } else {
+            const wixErr = await wixRes.text();
+            steps.push('⚠️ Wix: ' + wixErr.slice(0, 80));
+          }
+        } else {
+          steps.push('⚠️ Wix API key not found — add manually to portal');
+        }
+      } catch(wixE) {
+        steps.push('⚠️ Wix sync failed — add manually to portal');
       }
 
-      // Parse special clauses
-      let clausesJson = '[]';
-      if (contract.special_clauses) {
-        const cls = contract.special_clauses.split(/\.\s+/).filter(s => s.trim().length > 5);
-        clausesJson = JSON.stringify(cls.length > 0 ? cls : [contract.special_clauses]);
-      }
-
-      // Determine tier from debt_level
-      const tierMap = { 'Beginner': 'Bronze', 'Medium': 'Silver', 'Hard': 'Gold', 'Advanced': 'Platinum', 'Elite': 'Diamond', 'Custom': 'Bronze' };
-      const tier = tierMap[contract.debt_level] || 'Bronze';
-
-      const cv = parseFloat(contract.contract_value) || parseFloat(contract.minimum_debt) || 500;
-      const dp = parseFloat(contract.deposit_paid) || 150;
-      const wp = parseFloat(contract.weekly_payment) || 50;
-      const hit = parseFloat(contract.high_interest_threshold) || 0;
-
-      // Create profile
-      const profileRes = await insertProfile({
-        debtor_number: dn,
-        display_name: contract.name || 'New Debtor',
-        username: contract.username || null,
-        tier: tier,
-        standing: 'Good',
-        contract_total: cv,
-        current_balance: cv - dp,
-        fines_accrued: 0,
-        token_balance: 0,
-        tokens_earned: 0,
-        member_since: contract.start_date || new Date().toISOString().split('T')[0],
-        payment_streak: 0,
-        compliance_rating: 100,
-        is_active: true,
-        weekly_payment: wp
-      });
-
-      const profileId = profileRes?.[0]?.id;
-      if (!profileId) throw new Error('Profile created but no ID returned');
-
-      // Create stipulations
-      await insertStipulations({
-        profile_id: profileId,
-        weekly_payment: wp,
-        payment_day: contract.payment_day || 'Every Friday',
-        deposit_paid: dp,
-        contract_value: cv,
-        contract_start: contract.start_date || new Date().toISOString().split('T')[0],
-        interest_wheel: contract.interest_wheel || '',
-        high_interest_wheel: contract.high_interest_wheel || '',
-        high_interest_threshold: hit,
-        late_fee: contract.late_fee || '',
-        admin_fee: contract.admin_fee || '',
-        fines_json: finesJson,
-        special_clauses_json: clausesJson,
-        low_wheel_spins_used: 0
-      });
-
-      setImported(prev => ({...prev, [did]: true}));
+      setOk(
+        `🎉 ${displayName} (D${dn}) fully onboarded!\n\n` +
+        steps.join('\n') +
+        `\n\n📧 Login: ${email}\n🔑 Temp Password: ${tempPw}\n\n` +
+        `Send them this message:\n` +
+        `NEW temp password!\n${tempPw}\nI've updated the back end 😈`
+      );
       onDone?.();
-    } catch(e) {
-      console.error('Import error:', e);
-      setImporting(prev => ({...prev, [did]: 'error: ' + e.message}));
-    }
-  };
 
-  const newContracts = notionData ? notionData.filter(c => c.debt_id && !existingIds.has(c.debt_id)) : [];
-  const existingContracts = notionData ? notionData.filter(c => c.debt_id && existingIds.has(c.debt_id)) : [];
+      // Reset form
+      setDisplayName(''); setUsername(''); setContractTotal(''); setDeposit('');
+      setWeeklyPayment(''); setInterestWheel(''); setHighInterestWheel('');
+      setHighInterestThreshold(''); setAdminFee(''); setLateFee(''); setNotes('');
+      const nextNum = parseInt(dn) + 1;
+      setDebtorNum(String(nextNum).padStart(3, '0'));
+    } catch(e) {
+      setErr('Error: ' + e.message + (steps.length ? '\n\nCompleted:\n' + steps.join('\n') : ''));
+    }
+    setSaving(false);
+  };
 
   return (
     <div className="page">
-      <div className="page-title">🆕 Onboard Debtor</div>
-      <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'20px'}}>
-        Pull active contracts from Notion and import them into the admin panel with one tap.
+      <div className="page-title">🆕 Onboard New Debtor</div>
+
+      <div className="settings-section">
+        <div className="settings-title">👤 Debtor Info</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Debtor Number</label>
+            <input className="fi" value={debtorNum} onChange={e=>setDebtorNum(e.target.value)} placeholder="019" />
+          </div>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Debt Level</label>
+            <select className="fs" value={tier} onChange={e=>setTier(e.target.value)}>
+              <option value="Beginner">Beginner</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+              <option value="Advanced">Advanced</option>
+              <option value="Elite">Elite</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Full Name</label>
+          <input className="fi" value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="e.g. John Smith" />
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Username</label>
+            <input className="fi" value={username} onChange={e=>setUsername(e.target.value)} placeholder="e.g. finpig99" />
+          </div>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Platform</label>
+            <select className="fs" value={platform} onChange={e=>setPlatform(e.target.value)}>
+              <option value="LoyalFans">LoyalFans</option>
+              <option value="iWantClips">iWantClips</option>
+              <option value="Clips4Sale">Clips4Sale</option>
+              <option value="FinMessage">FinMessage</option>
+              <option value="X/Twitter">X / Twitter</option>
+              <option value="Throne">Throne</option>
+              <option value="Wishtender">Wishtender</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      <button className="btn" onClick={pullFromNotion} disabled={loading} style={{width:'100%',marginBottom:'20px'}}>
-        {loading ? <span><span className="spinner" style={{marginRight:'8px'}}/>Pulling from Notion...</span> : '📥 Pull Active Contracts from Notion'}
-      </button>
-
-      {err && <div className="error-msg" style={{marginBottom:'16px'}}>{err}</div>}
-
-      {notionData && (
-        <div>
-          {newContracts.length > 0 && (
-            <div style={{marginBottom:'24px'}}>
-              <div className="section-title" style={{color:'var(--green)'}}>✅ Ready to Import ({newContracts.length})</div>
-              {newContracts.map(c => (
-                <div key={c.debt_id} style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'8px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}}>
-                    <div>
-                      <div style={{fontWeight:700,fontSize:'15px'}}>{c.name}</div>
-                      <div style={{fontSize:'12px',color:'var(--text-dim)',marginTop:'2px'}}>{c.debt_id} • @{c.username} • {c.platform}</div>
-                    </div>
-                    {imported[c.debt_id] ? (
-                      <span style={{color:'var(--green)',fontWeight:600,fontSize:'13px'}}>✅ Imported</span>
-                    ) : (
-                      <button className="btn btn-sm" onClick={()=>importDebtor(c)} disabled={importing[c.debt_id]===true}>
-                        {importing[c.debt_id]===true ? <span className="spinner"/> : 'Import'}
-                      </button>
-                    )}
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',fontSize:'12px',color:'var(--text-dim)'}}>
-                    <span>💳 {fmt(c.weekly_payment)}/wk</span>
-                    <span>📄 {fmt(c.contract_value || c.minimum_debt)}</span>
-                    <span>🏦 {fmt(c.deposit_paid)} dep</span>
-                    <span>🎡 {c.interest_wheel ? c.interest_wheel.slice(0,25)+'...' : '—'}</span>
-                    <span>📅 {c.payment_day || '—'}</span>
-                    <span>🏷 {c.debt_level || '—'}</span>
-                  </div>
-                  {typeof importing[c.debt_id] === 'string' && importing[c.debt_id].startsWith('error') && (
-                    <div className="error-msg" style={{marginTop:'8px',fontSize:'11px'}}>{importing[c.debt_id]}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {existingContracts.length > 0 && (
-            <div>
-              <div className="section-title" style={{color:'var(--text-dim)'}}>Already in System ({existingContracts.length})</div>
-              {existingContracts.map(c => (
-                <div key={c.debt_id} style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:'6px',opacity:0.6}}>
-                  <span style={{fontSize:'13px'}}>{c.debt_id} — {c.name} (@{c.username})</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {newContracts.length === 0 && existingContracts.length > 0 && (
-            <div className="success-msg" style={{marginTop:'16px'}}>All active Notion contracts are already in the system. Nothing new to import.</div>
-          )}
+      <div className="settings-section">
+        <div className="settings-title">📄 Contract Details</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px'}}>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Contract Value (£)</label>
+            <input className="fi" type="number" inputMode="decimal" value={contractTotal} onChange={e=>setContractTotal(e.target.value)} placeholder="500" />
+          </div>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Deposit (£)</label>
+            <input className="fi" type="number" inputMode="decimal" value={deposit} onChange={e=>setDeposit(e.target.value)} placeholder="150" />
+          </div>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Weekly (£)</label>
+            <input className="fi" type="number" inputMode="decimal" value={weeklyPayment} onChange={e=>setWeeklyPayment(e.target.value)} placeholder="50" />
+          </div>
         </div>
-      )}
+        {cv > 0 && (
+          <div style={{marginTop:'12px',padding:'10px 14px',background:'var(--gold-glow)',borderRadius:'var(--radius-sm)',fontSize:'13px',color:'var(--gold)'}}>
+            Starting balance: <strong>{fmt(startingBalance)}</strong> ({fmt(cv)} contract − {fmt(dp)} deposit)
+          </div>
+        )}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginTop:'12px'}}>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Payment Day</label>
+            <select className="fs" value={paymentDay} onChange={e=>setPaymentDay(e.target.value)}>
+              <option value="Every Friday">Every Friday</option>
+              <option value="Every Monday">Every Monday</option>
+              <option value="Every Sunday">Every Sunday</option>
+              <option value="Every Saturday">Every Saturday</option>
+              <option value="Bi-weekly">Bi-weekly</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-title">🎡 Interest & Fees</div>
+        <div className="form-group">
+          <label className="form-label">Interest Wheel</label>
+          <input className="fi" value={interestWheel} onChange={e=>setInterestWheel(e.target.value)} placeholder="e.g. 0-30% random wheel spin each Sunday" />
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">High Interest Wheel</label>
+            <input className="fi" value={highInterestWheel} onChange={e=>setHighInterestWheel(e.target.value)} placeholder="e.g. 0-200% when below threshold" />
+          </div>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">High Int. Threshold (£)</label>
+            <input className="fi" type="number" inputMode="decimal" value={highInterestThreshold} onChange={e=>setHighInterestThreshold(e.target.value)} placeholder="e.g. 250" />
+          </div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginTop:'12px'}}>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Admin Fee</label>
+            <input className="fi" value={adminFee} onChange={e=>setAdminFee(e.target.value)} placeholder="e.g. $5 per line" />
+          </div>
+          <div className="form-group" style={{margin:0}}>
+            <label className="form-label">Late Fee</label>
+            <input className="fi" value={lateFee} onChange={e=>setLateFee(e.target.value)} placeholder="e.g. $25 per day late" />
+          </div>
+        </div>
+        <div className="form-group" style={{marginTop:'12px'}}>
+          <label className="form-label">Notes</label>
+          <textarea className="ft" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Any contract notes, special terms, etc..." />
+        </div>
+      </div>
+
+      {err && <div className="error-msg" style={{marginBottom:'12px',whiteSpace:'pre-wrap',textAlign:'left'}}>{err}</div>}
+      {ok && <div className="success-msg" style={{marginBottom:'12px',whiteSpace:'pre-wrap',textAlign:'left',lineHeight:1.6}}>{ok}</div>}
+
+      {!ok && <button className="btn" onClick={doOnboard} disabled={saving} style={{width:'100%'}}>
+        {saving ? <span className="spinner"/> : `Onboard D${debtorNum} — ${displayName || 'New Debtor'}`}
+      </button>}
+      {ok && <button className="btn" onClick={()=>{setOk('');}} style={{width:'100%'}}>Onboard Another Debtor</button>}
+
+      <div style={{marginTop:'16px',fontSize:'12px',color:'var(--text-muted)',textAlign:'center'}}>
+        This creates the Supabase profile, stipulations, and opening ledger entry.<br/>
+        Fines and special clauses can be added after via the debtor's detail page.
+      </div>
     </div>
   );
 }
