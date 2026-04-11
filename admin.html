@@ -1474,17 +1474,7 @@ function Onboard({ profiles, onDone }) {
   const startingBalance = cv - dp;
 
   // Service role key loaded from app_settings (not hardcoded for security)
-  const [srvKey, setSrvKey] = useState(null);
-  const WIX_SITE = '6830a889-5f45-45ed-b828-cc5bc79fee83';
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await sf('/rest/v1/app_settings?key=eq.supabase_service_key&select=value');
-        if (r?.[0]?.value) setSrvKey(r[0].value);
-      } catch(e) { console.log('Service key not found in app_settings'); }
-    })();
-  }, []);
+ const WIX_SITE = '6830a889-5f45-45ed-b828-cc5bc79fee83';
 
   const genPw = (dn) => {
     const c = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -1493,165 +1483,109 @@ function Onboard({ profiles, onDone }) {
   };
 
   const doOnboard = async () => {
-    setErr(''); setOk('');
-    if (!srvKey) { setErr('Service key not loaded. Add your Supabase service_role key to app_settings (key: supabase_service_key).'); return; }
-    if (!debtorNum.trim()) { setErr('Debtor number is required'); return; }
-    if (!displayName.trim()) { setErr('Name is required'); return; }
-    if (cv <= 0) { setErr('Contract value must be greater than 0'); return; }
+setErr(''); setOk('');
+if (!debtorNum.trim()) { setErr('Debtor number is required'); return; }
+if (!displayName.trim()) { setErr('Name is required'); return; }
+if (cv <= 0) { setErr('Contract value must be greater than 0'); return; }
 
     const dn = debtorNum.trim();
-    const existing = profiles.find(p => p.debtor_number === dn);
-    if (existing) { setErr(`Debtor number ${dn} already exists (${existing.display_name})`); return; }
+const existing = profiles.find(p => p.debtor_number === dn);
+if (existing) { setErr(`Debtor number ${dn} already exists (${existing.display_name})`); return; }
 
-    setSaving(true);
-    const tempPw = genPw(dn);
-    const email = `d${dn}@trueeempire.local`;
-    let steps = [];
+setSaving(true);
+const tempPw = genPw(dn);
+const email = `d${dn}@trueeempire.local`;
+let steps = [];
 
-    try {
-      // 1. Create Supabase auth user
-      const authRes = await fetch(`${SB_URL}/auth/v1/admin/users`, {
+try {
+  // Call the server-side function to create everything
+  const result = await sf('/rest/v1/rpc/admin_create_user', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_email: email,
+      p_password: tempPw,
+      p_debtor_number: dn,
+      p_display_name: displayName.trim(),
+      p_username: username.trim() || null,
+      p_tier: tier,
+      p_contract_total: cv,
+      p_deposit: dp,
+      p_weekly_payment: parseFloat(weeklyPayment) || 0,
+      p_payment_day: paymentDay,
+      p_interest_wheel: interestWheel || '',
+      p_high_interest_wheel: highInterestWheel || '',
+      p_high_interest_threshold: parseFloat(highInterestThreshold) || 0,
+      p_admin_fee: adminFee || '',
+      p_late_fee: lateFee || '',
+      p_notes: notes || ''
+    })
+  });
+
+  steps.push('✅ Login account created');
+  steps.push('✅ Profile created');
+  steps.push('✅ Contract terms saved');
+  steps.push('✅ Opening ledger entry created');
+
+  // Create Wix CMS entry (this uses the admin's token, not service key)
+  try {
+    const wixKeyRes = await sf('/rest/v1/app_settings?key=eq.wix_api_key&select=value');
+    const wixApiKey = wixKeyRes?.[0]?.value;
+
+    if (wixApiKey) {
+      const wixRes = await fetch('https://www.wixapis.com/wix-data/v2/items', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}` },
-        body: JSON.stringify({ email, password: tempPw, email_confirm: true })
-      });
-      const authData = await authRes.json();
-      if (!authRes.ok) throw new Error('Auth: ' + (authData.msg || authData.message || 'Failed'));
-      const authUserId = authData.id;
-      steps.push('✅ Login account created');
-
-      // 2. Update profile (auth creates a row, we patch it with debtor data)
-      await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${authUserId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}`, 'Prefer': 'return=representation' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': wixApiKey,
+          'wix-site-id': WIX_SITE
+        },
         body: JSON.stringify({
-          debtor_number: dn,
-          display_name: displayName.trim(),
-          username: username.trim() || null,
-          tier: tier,
-          standing: 'Good',
-          contract_total: cv,
-          current_balance: startingBalance,
-          fines_accrued: 0,
-          token_balance: 0,
-          tokens_earned: 0,
-          member_since: new Date().toISOString().split('T')[0],
-          payment_streak: 0,
-          compliance_rating: 100,
-          is_active: true,
-          weekly_payment: parseFloat(weeklyPayment) || 0,
-          updated_at: new Date().toISOString()
-        })
-      });
-      steps.push('✅ Profile created');
-
-      // 3. Create stipulations
-      await fetch(`${SB_URL}/rest/v1/stipulations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}`, 'Prefer': 'return=representation' },
-        body: JSON.stringify({
-          profile_id: authUserId,
-          weekly_payment: parseFloat(weeklyPayment) || 0,
-          payment_day: paymentDay,
-          deposit_paid: dp,
-          contract_value: cv,
-          contract_start: new Date().toISOString().split('T')[0],
-          interest_wheel: interestWheel || '',
-          high_interest_wheel: highInterestWheel || '',
-          high_interest_threshold: parseFloat(highInterestThreshold) || 0,
-          late_fee: lateFee || '',
-          admin_fee: adminFee || '',
-          fines_json: '[]',
-          special_clauses_json: '[]',
-          notes: notes || '',
-          low_wheel_spins_used: 0
-        })
-      });
-      steps.push('✅ Contract terms saved');
-
-      // 4. Create initial ledger entry
-      const now = new Date().toISOString();
-      await fetch(`${SB_URL}/rest/v1/ledger`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}`, 'Prefer': 'return=representation' },
-        body: JSON.stringify({
-          profile_id: authUserId,
-          entry_type: 'Debt Game',
-          entry_date: now,
-          amount: startingBalance,
-          balance_after: startingBalance,
-          description: `Contract started — ${fmt(cv)} debt, ${fmt(dp)} deposit`,
-          admin_fee: 0,
-          created_at: now,
-          tokens_awarded: 0
-        })
-      });
-      steps.push('✅ Opening ledger entry created');
-
-      // 5. Create Wix CMS entry
-      try {
-        const wixKeyRes = await fetch(`${SB_URL}/rest/v1/app_settings?key=eq.wix_api_key&select=value`, {
-          headers: { 'apikey': srvKey, 'Authorization': `Bearer ${srvKey}` }
-        });
-        const wixKeyData = await wixKeyRes.json();
-        const wixApiKey = wixKeyData?.[0]?.value;
-
-        if (wixApiKey) {
-          const wixRes = await fetch(`https://www.wixapis.com/wix-data/v2/items`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': wixApiKey,
-              'wix-site-id': WIX_SITE
-            },
-            body: JSON.stringify({
-              dataCollectionId: 'DebtProfiles',
-              dataItem: {
-                data: {
-                  debtorId: `D${dn}`,
-                  name: displayName.trim(),
-                  currentBalance: startingBalance,
-                  debtTier: tier,
-                  spendBadge: 'New',
-                  totalSpent: dp,
-                  status: 'Active'
-                }
-              }
-            })
-          });
-          if (wixRes.ok) {
-            steps.push('✅ Wix portal entry created');
-          } else {
-            const wixErr = await wixRes.text();
-            steps.push('⚠️ Wix: ' + wixErr.slice(0, 80));
+          dataCollectionId: 'DebtProfiles',
+          dataItem: {
+            data: {
+              debtorId: 'D' + dn,
+              name: displayName.trim(),
+              currentBalance: cv - dp,
+              debtTier: tier,
+              spendBadge: 'New',
+              totalSpent: dp,
+              status: 'Active'
+            }
           }
-        } else {
-          steps.push('⚠️ Wix API key not found — add manually to portal');
-        }
-      } catch(wixE) {
-        steps.push('⚠️ Wix sync failed — add manually to portal');
+        })
+      });
+      if (wixRes.ok) {
+        steps.push('✅ Wix portal entry created');
+      } else {
+        const wixErr = await wixRes.text();
+        steps.push('⚠️ Wix: ' + wixErr.slice(0, 80));
       }
-
-      setOk(
-        `🎉 ${displayName} (D${dn}) fully onboarded!\n\n` +
-        steps.join('\n') +
-        `\n\n📧 Login: ${email}\n🔑 Temp Password: ${tempPw}\n\n` +
-        `Send them this message:\n` +
-        `NEW temp password!\n${tempPw}\nI've updated the back end 😈`
-      );
-      onDone?.();
-
-      // Reset form
-      setDisplayName(''); setUsername(''); setContractTotal(''); setDeposit('');
-      setWeeklyPayment(''); setInterestWheel(''); setHighInterestWheel('');
-      setHighInterestThreshold(''); setAdminFee(''); setLateFee(''); setNotes('');
-      const nextNum = parseInt(dn) + 1;
-      setDebtorNum(String(nextNum).padStart(3, '0'));
-    } catch(e) {
-      setErr('Error: ' + e.message + (steps.length ? '\n\nCompleted:\n' + steps.join('\n') : ''));
+    } else {
+      steps.push('⚠️ Wix API key not found — add manually to portal');
     }
-    setSaving(false);
-  };
+  } catch(wixE) {
+    steps.push('⚠️ Wix sync failed — add manually to portal');
+  }
+
+  setOk(
+    `🎉 ${displayName} (D${dn}) fully onboarded!\n\n` +
+    steps.join('\n') +
+    `\n\n📧 Login: ${email}\n🔑 Temp Password: ${tempPw}\n\n` +
+    `Send them this message:\nNEW temp password!\n${tempPw}\nI've updated the back end 😈`
+  );
+  onDone?.();
+
+  // Reset form
+  setDisplayName(''); setUsername(''); setContractTotal(''); setDeposit('');
+  setWeeklyPayment(''); setInterestWheel(''); setHighInterestWheel('');
+  setHighInterestThreshold(''); setAdminFee(''); setLateFee(''); setNotes('');
+  const nextNum = parseInt(dn) + 1;
+  setDebtorNum(String(nextNum).padStart(3, '0'));
+} catch(e) {
+  setErr('Error: ' + e.message + (steps.length ? '\n\nCompleted:\n' + steps.join('\n') : ''));
+}
+setSaving(false);
+};
 
   return (
     <div className="page">
