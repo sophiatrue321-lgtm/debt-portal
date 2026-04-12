@@ -2097,7 +2097,9 @@ function replayWheelSpin(notifId) {
         '</div>' +
       '</div>' +
     '</div>';
- 
+  
+  var existingOverlay = document.getElementById('replayOverlay');
+  if (existingOverlay) existingOverlay.remove();
   document.body.appendChild(overlay);
  
   // Start spin animation after brief delay
