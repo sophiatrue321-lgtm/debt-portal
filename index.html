@@ -1193,9 +1193,10 @@ function renderDashboard() {
     var html = '<table class="ledger-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Fee</th><th>Balance</th></tr></thead><tbody>';
     recent.forEach(function(row) {
       var isNeg = row.amount < 0;
+      html += '<tr>';
+      html += '<td>' + formatDate(row.entry_date) + '</td>';
+      html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
       html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
-      html += '<td>' + (row.admin_fee > 0 ? '\u00A3' + formatAmount(row.admin_fee) : '\u2014') + '</td>';
-      html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
       html += '</tr>';
     });
     html += '</tbody></table>';
