@@ -671,7 +671,9 @@ function Feed({ items, onTap, limit=20, privacyMode }) {
 }
 
 function AlertPanel({ alerts, onView, onDismiss, alertPrefs, onTogglePref }) {
+  const dismissed = alertPrefs?.dismissed_alerts || [];
   const visibleAlerts = alerts.filter(a => {
+    if (a.key && dismissed.includes(a.key)) return false;
     if (alertPrefs) {
       if (a.icon === '🚨' && !alertPrefs.show_overdue_alerts) return false;
       if (a.icon === '⚠️' && !alertPrefs.show_fine_review_alerts) return false;
@@ -2020,7 +2022,7 @@ function App() {
       setStips(s||[]);
       // Generate alerts
       const al = generateAlerts(p||[], s||[], a||[]);
-      setAlerts(al.filter(a => !(alertPrefs.dismissed_alerts || []).includes(a.key)));
+      setAlerts(al);
     } catch(e) { console.error(e); }
     setDl(false);
   }, []);
