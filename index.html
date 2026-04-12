@@ -1846,10 +1846,6 @@ async function submitPayment() {
   btn.textContent = 'SUBMIT FOR APPROVAL';
 }
  
- 
-STEP 5: Set today's date as default and load submissions on app load.
-Search for:
- 
   await Promise.all([loadLedger(), loadTokens(), loadStipulations()]);
  
 Replace with:
