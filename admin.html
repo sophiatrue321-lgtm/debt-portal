@@ -1003,12 +1003,15 @@ function SpinWheel({ segments, onResult, balance }) {
     setSpinning(true);
     setResult(null);
 
-    const spins = 5 + Math.random() * 5; // 5-10 full rotations
     const winIdx = Math.floor(Math.random() * segCount);
-    // Calculate final rotation so the winning segment lands at the top (pointer at top = 270deg in standard math)
-    const targetAngle = 360 - (winIdx * segAngle + segAngle / 2);
-    const totalRotation = rotation + spins * 360 + targetAngle;
-    setRotation(totalRotation);
+    const segMid = winIdx * segAngle + segAngle / 2;
+    // We want this segment's midpoint at the top (where pointer is)
+    // The SVG is drawn with segment 0 starting at -90deg (12 o'clock)
+    // So segment i's midpoint is at angle: i * segAngle + segAngle/2 degrees from 12 o'clock
+    // To bring it to the top, we rotate BACKWARDS by that amount
+    const spins = 5 + Math.floor(Math.random() * 5);
+    const finalRotation = spins * 360 + (360 - segMid);
+    setRotation(finalRotation);
 
     setTimeout(() => {
       const pct = segments[winIdx];
