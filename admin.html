@@ -558,26 +558,44 @@ function generateAlerts(profiles, stips, activity) {
 // ========== PARSE WHEEL STRING ==========
 function parseWheelStr(str) {
   if (!str) return null;
-  // Try to extract numbers like "0%, 5%, 10%, 25%" or "5% fixed" or "0-30%"
+  // Clean the string: remove descriptive text after the percentages
+  // e.g. "0%, 5%, 10%, 15%, 20%, 25%, 30% random wheel spin each Sunday"
+  // e.g. "0-200% when balance below threshold"
+  // e.g. "5% fixed rate"
+  // e.g. "10%, 20%, 30%"
+ 
   const nums = [];
-  // Match patterns like "5%", "10%", etc
+ 
+  // Step 1: Try to find a comma-separated list of percentages like "0%, 5%, 10%"
   const pctMatches = str.match(/(\d+(?:\.\d+)?)\s*%/g);
+ 
   if (pctMatches && pctMatches.length > 1) {
-    pctMatches.forEach(m => { nums.push(parseFloat(m)); });
-    return nums;
+    // Multiple percentage values found — use them as segments
+    pctMatches.forEach(function(m) { nums.push(parseFloat(m)); });
+    // Remove duplicates and sort
+    const unique = [...new Set(nums)].sort(function(a, b) { return a - b; });
+    return unique;
   }
-  // Match range like "0-30%"
-  const rangeMatch = str.match(/(\d+)\s*[-–]\s*(\d+)\s*%/);
+ 
+  // Step 2: Try to find a range like "0-30%" or "0–200%"
+  const rangeMatch = str.match(/(\d+)\s*[-–—]\s*(\d+)\s*%/);
   if (rangeMatch) {
-    const lo = parseInt(rangeMatch[1]), hi = parseInt(rangeMatch[2]);
-    const step = hi <= 30 ? 5 : 10;
+    const lo = parseInt(rangeMatch[1]);
+    const hi = parseInt(rangeMatch[2]);
+    // Choose step size based on range
+    let step;
+    if (hi <= 30) step = 5;
+    else if (hi <= 100) step = 10;
+    else step = 10; // For 0-200%, use steps of 10
     for (let i = lo; i <= hi; i += step) nums.push(i);
     return nums;
   }
-  // Single fixed like "5%"
+ 
+  // Step 3: Single fixed percentage like "5%" or "5% fixed"
   if (pctMatches && pctMatches.length === 1) {
     return [parseFloat(pctMatches[0])];
   }
+ 
   return null;
 }
 
