@@ -1209,7 +1209,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
                     <div>
                       {st ? (
                         <div>
-                          {parseFloat(st.high_interest_threshold) > 0 &&  conabal < parseFloat(st.high_interest_threshold)st useHigh = thresh > 0 && bal < thresh; && (
+                          {parseFloat(st.high_interest_threshold) > 0 && bal < parseFloat(st.high_interest_threshold) && (
                             <div className="alert-item warn" style={{marginBottom:'12px',cursor:'default'}}>
                               <span className="alert-icon">⚡</span>
                               <span className="alert-text">Balance ({fmt(bal)}) is below high interest threshold ({fmt(st.high_interest_threshold)}). Using <strong>high interest wheel</strong>.</span>
