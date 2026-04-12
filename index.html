@@ -2013,12 +2013,118 @@ async function dismissAllNotifications() {
   }
 }
  
-// Placeholder for wheel spin replay (Part B will add the full animation)
-async function replayWheelSpin(notifId) {
+// ===== WHEEL SPIN REPLAY =====
+var replayOverlayVisible = false;
+ 
+function replayWheelSpin(notifId) {
   var notif = notificationsData.find(function(n) { return n.id === notifId; });
   if (!notif || !notif.wheel_data) return;
-  // Part B will add the actual wheel animation replay here
-  alert('Wheel spin result: ' + notif.wheel_data.result_pct + '% — £' + formatAmount(notif.wheel_data.interest_amount || 0) + ' added to balance');
+ 
+  var wd = notif.wheel_data;
+  var segments = wd.segments || [];
+  var resultIdx = wd.result_index || 0;
+  var resultPct = wd.result_pct || 0;
+  var interestAmt = wd.interest_amount || 0;
+  var newBalance = wd.new_balance || 0;
+ 
+  if (segments.length < 2) {
+    alert('Wheel spin result: ' + resultPct + '% — £' + formatAmount(interestAmt) + ' added to balance');
+    return;
+  }
+ 
+  // Hide notifications modal
+  hideNotifications();
+ 
+  // Build replay overlay
+  var overlay = document.createElement('div');
+  overlay.id = 'replayOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:1rem;';
+  replayOverlayVisible = true;
+ 
+  var n = segments.length;
+  var segDeg = 360 / n;
+  var wheelSize = 280;
+  var cx = wheelSize / 2;
+  var cy = wheelSize / 2;
+  var r = cx - 10;
+ 
+  // Wheel colours matching admin panel
+  var colors = ['#c9a84c','#8B7355','#D4A574','#A0522D','#CD853F','#DAA520','#B8860B','#F4A460','#DEB887','#C8A882','#E8C872','#9B7B3A'];
+ 
+  var svgParts = '';
+  for (var i = 0; i < n; i++) {
+    var a1 = (i * segDeg - 90) * Math.PI / 180;
+    var a2 = ((i + 1) * segDeg - 90) * Math.PI / 180;
+    var x1 = cx + r * Math.cos(a1);
+    var y1 = cy + r * Math.sin(a1);
+    var x2 = cx + r * Math.cos(a2);
+    var y2 = cy + r * Math.sin(a2);
+    var large = segDeg > 180 ? 1 : 0;
+    var midA = ((i + 0.5) * segDeg - 90) * Math.PI / 180;
+    var labelR = n > 14 ? r * 0.72 : r * 0.65;
+    var lx = cx + labelR * Math.cos(midA);
+    var ly = cy + labelR * Math.sin(midA);
+    var rot = (i + 0.5) * segDeg;
+    var fontSize = n > 14 ? 8 : (n > 8 ? 10 : 13);
+ 
+    svgParts += '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + large + ',1 ' + x2 + ',' + y2 + ' Z" fill="' + colors[i % colors.length] + '" stroke="#0a0a0a" stroke-width="2"/>';
+    svgParts += '<text x="' + lx + '" y="' + ly + '" text-anchor="middle" dominant-baseline="central" fill="#0a0a0a" font-size="' + fontSize + '" font-weight="700" font-family="DM Sans,sans-serif" transform="rotate(' + rot + ',' + lx + ',' + ly + ')">' + segments[i] + '%</text>';
+  }
+  svgParts += '<circle cx="' + cx + '" cy="' + cy + '" r="20" fill="#0a0a0a" stroke="#c9a84c" stroke-width="3"/>';
+  svgParts += '<text x="' + cx + '" y="' + cy + '" text-anchor="middle" dominant-baseline="central" fill="#c9a84c" font-size="9" font-weight="700" font-family="DM Sans,sans-serif">SPIN</text>';
+ 
+  overlay.innerHTML = '' +
+    '<div style="text-align:center;margin-bottom:16px;">' +
+      '<div style="font-family:Cormorant Garamond,serif;font-size:22px;font-weight:500;color:#c9a84c;letter-spacing:3px;text-transform:uppercase;">Interest Wheel</div>' +
+      '<div style="font-size:12px;color:#8a857b;margin-top:4px;">The Empress spun your wheel...</div>' +
+    '</div>' +
+    '<div style="position:relative;display:inline-block;">' +
+      '<div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);z-index:10;font-size:28px;color:#c9a84c;filter:drop-shadow(0 2px 6px rgba(201,168,76,0.5));line-height:1;">&#9660;</div>' +
+      '<div id="replayRotor" style="width:' + wheelSize + 'px;height:' + wheelSize + 'px;border-radius:50%;border:3px solid #8a7235;overflow:hidden;box-shadow:0 0 30px rgba(201,168,76,0.15);transition:transform 5s cubic-bezier(0.17,0.67,0.12,0.99);">' +
+        '<svg viewBox="0 0 ' + wheelSize + ' ' + wheelSize + '" width="' + wheelSize + '" height="' + wheelSize + '">' + svgParts + '</svg>' +
+      '</div>' +
+    '</div>' +
+    '<div id="replayResult" style="display:none;margin-top:24px;text-align:center;max-width:360px;width:100%;">' +
+      '<div style="background:#141414;border:1px solid #c9a84c;border-radius:12px;padding:2rem;">' +
+        '<div style="font-size:48px;margin-bottom:8px;">🎡</div>' +
+        '<div style="font-family:Cormorant Garamond,serif;font-size:36px;font-weight:500;color:#c9a84c;">' + resultPct + '%</div>' +
+        '<div style="font-size:13px;color:#8a857b;margin-top:8px;line-height:1.6;">' +
+          '£' + formatAmount(interestAmt) + ' added to your balance<br>' +
+          'New balance: <strong style="color:#c9a84c;">£' + formatAmount(newBalance) + '</strong>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:16px;">' +
+          '<button onclick="replayWheelSpin(\'' + notifId + '\')" style="flex:1;padding:10px;background:transparent;border:1px solid rgba(201,168,76,0.3);border-radius:6px;color:#c9a84c;font-size:11px;font-family:DM Sans,sans-serif;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Watch again</button>' +
+          '<button onclick="closeReplay()" style="flex:1;padding:10px;background:#c9a84c;border:1px solid #c9a84c;border-radius:6px;color:#0a0a0a;font-size:11px;font-weight:500;font-family:DM Sans,sans-serif;cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Dismiss</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+ 
+  document.body.appendChild(overlay);
+ 
+  // Start spin animation after brief delay
+  setTimeout(function() {
+    var rotor = document.getElementById('replayRotor');
+    if (!rotor) return;
+ 
+    var segMiddle = resultIdx * segDeg + segDeg / 2;
+    var targetDeg = 360 - segMiddle;
+    var extraSpins = (7 + Math.floor(Math.random() * 3)) * 360;
+    var finalRotation = extraSpins + targetDeg;
+ 
+    rotor.style.transform = 'rotate(' + finalRotation + 'deg)';
+ 
+    // Show result after spin finishes
+    setTimeout(function() {
+      var resultEl = document.getElementById('replayResult');
+      if (resultEl) resultEl.style.display = 'block';
+    }, 5300);
+  }, 500);
+}
+ 
+function closeReplay() {
+  var overlay = document.getElementById('replayOverlay');
+  if (overlay) overlay.remove();
+  replayOverlayVisible = false;
 }
  
 function formatTimeAgo(date) {
