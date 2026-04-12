@@ -1845,11 +1845,7 @@ async function submitPayment() {
   btn.disabled = false;
   btn.textContent = 'SUBMIT FOR APPROVAL';
 }
- 
-  await Promise.all([loadLedger(), loadTokens(), loadStipulations()]);
- 
-Replace with:
- 
+  
   await Promise.all([loadLedger(), loadTokens(), loadStipulations(), loadSubmissions()]);
   
 // ===== ENTER KEY =====
