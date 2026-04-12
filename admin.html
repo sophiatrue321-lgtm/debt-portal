@@ -953,9 +953,9 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
 
       {tab==='ledger'&&(
         <div className="table-wrap">{lg.length===0?<div className="empty-state">No transactions</div>:(
-          <table className="dt"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Balance</th><th>Notes</th></tr></thead>
+          <table className="dt"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Fee</th><th>Balance</th><th>Notes</th></tr></thead>
           <tbody>{lg.map((l,i)=>{const a=parseFloat(l.amount)||0;const ip=(l.entry_type||'').toLowerCase().includes('payment');const ec=`et-${(l.entry_type||'').toLowerCase().replace(/[\s_]+/g,'-')}`;
-          return(<tr key={l.id||i}><td>{fmtD(l.entry_date||l.created_at)}</td><td><span className={`et ${ec}`}>{l.entry_type}</span></td><td className={ip?'amt-neg':'amt-pos'}>{ip?'-':'+'}{fmt(Math.abs(a))}</td><td style={{color:'var(--text-dim)'}}>{l.balance_after!=null?fmt(l.balance_after):'—'}</td><td style={{fontSize:'11px',color:'var(--text-dim)',maxWidth:'120px'}}>{l.description||'—'}</td></tr>);})}</tbody></table>
+          return(<tr key={l.id||i}><td>{fmtD(l.entry_date||l.created_at)}</td><td><span className={`et ${ec}`}>{l.entry_type}</span></td><td className={ip?'amt-neg':'amt-pos'}>{ip?'-':'+'}{fmt(Math.abs(a))}</td><td style={{color:'var(--text-dim)',fontSize:'11px'}}>{l.admin_fee>0?fmt(l.admin_fee):'—'}</td><td style={{color:'var(--text-dim)'}}>{l.balance_after!=null?fmt(l.balance_after):'—'}</td><td style={{fontSize:'11px',color:'var(--text-dim)',maxWidth:'120px'}}>{l.description||'—'}</td></tr>);})}</tbody></table>
         )}</div>
       )}
 
