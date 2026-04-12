@@ -551,51 +551,70 @@ function generateAlerts(profiles, stips, activity) {
       });
     }
   });
-
+// Check for 300+ weekly payment clause trigger
+    // If a debtor has a clause mentioning 300+ paid in a week,
+    // check if they've actually paid 300+ this week (Sun-Sat)
+    profiles.forEach(p => {
+      if (p.is_active === false || p.standing === 'inactive') return;
+      const st = stips.find(s => s.profile_id === p.id);
+      if (!st) return;
+ 
+      // Check if they have a 300+ clause
+      const clauseStr = JSON.stringify(st.special_clauses_json || '') + JSON.stringify(st.fines_json || '') + (st.notes || '');
+      const has300clause = /300\+?\s*(paid|in a week|weekly|per week|paid off)/i.test(clauseStr) || /more than\s*\$?£?300/i.test(clauseStr);
+      if (!has300clause) return;
+ 
+      // Calculate this week's payments (Sunday to Saturday)
+      const now = new Date();
+      const dayOfWeek = now.getDay(); // 0=Sunday
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - dayOfWeek);
+      weekStart.setHours(0, 0, 0, 0);
+ 
+      const weekPayments = activity.filter(a =>
+        a.profile_id === p.id &&
+        (a.entry_type || '').toLowerCase().includes('payment') &&
+        new Date(a.created_at) >= weekStart
+      );
+ 
+      const weekTotal = weekPayments.reduce((sum, a) => sum + Math.abs(parseFloat(a.amount) || 0), 0);
+ 
+      if (weekTotal >= 300) {
+        alerts.push({
+          type: 'warn',
+          icon: '🎡',
+          text: `<strong>${p.debtor_number} ${p.display_name}</strong> — paid <strong>${fmt(weekTotal)}</strong> this week (Sun-Sat). 300+ clause triggered — additional wheel spin due!`,
+          pid: p.id
+        });
+      }
+    });
   return alerts;
 }
 
 // ========== PARSE WHEEL STRING ==========
 function parseWheelStr(str) {
   if (!str) return null;
-  // Clean the string: remove descriptive text after the percentages
-  // e.g. "0%, 5%, 10%, 15%, 20%, 25%, 30% random wheel spin each Sunday"
-  // e.g. "0-200% when balance below threshold"
-  // e.g. "5% fixed rate"
-  // e.g. "10%, 20%, 30%"
- 
   const nums = [];
- 
-  // Step 1: Try to find a comma-separated list of percentages like "0%, 5%, 10%"
   const pctMatches = str.match(/(\d+(?:\.\d+)?)\s*%/g);
- 
   if (pctMatches && pctMatches.length > 1) {
-    // Multiple percentage values found — use them as segments
     pctMatches.forEach(function(m) { nums.push(parseFloat(m)); });
-    // Remove duplicates and sort
     const unique = [...new Set(nums)].sort(function(a, b) { return a - b; });
     return unique;
   }
- 
-  // Step 2: Try to find a range like "0-30%" or "0–200%"
   const rangeMatch = str.match(/(\d+)\s*[-–—]\s*(\d+)\s*%/);
   if (rangeMatch) {
     const lo = parseInt(rangeMatch[1]);
     const hi = parseInt(rangeMatch[2]);
-    // Choose step size based on range
     let step;
     if (hi <= 30) step = 5;
     else if (hi <= 100) step = 10;
-    else step = 10; // For 0-200%, use steps of 10
+    else step = 10;
     for (let i = lo; i <= hi; i += step) nums.push(i);
     return nums;
   }
- 
-  // Step 3: Single fixed percentage like "5%" or "5% fixed"
   if (pctMatches && pctMatches.length === 1) {
     return [parseFloat(pctMatches[0])];
   }
- 
   return null;
 }
 
@@ -970,8 +989,9 @@ function SpinWheel({ segments, onResult, balance }) {
             const y2 = 140 + 130 * Math.sin(endAngle);
             const largeArc = segAngle > 180 ? 1 : 0;
             const midAngle = ((i + 0.5) * segAngle - 90) * (Math.PI / 180);
-            const tx = 140 + 85 * Math.cos(midAngle);
-            const ty = 140 + 85 * Math.sin(midAngle);
+            const labelR = segCount > 14 ? 95 : 85;
+            const tx = 140 + labelR * Math.cos(midAngle);
+            const ty = 140 + labelR * Math.sin(midAngle);
             const textRotate = (i + 0.5) * segAngle;
             return (
               <g key={i}>
@@ -979,7 +999,7 @@ function SpinWheel({ segments, onResult, balance }) {
                   fill={WHEEL_COLORS[i % WHEEL_COLORS.length]}
                   stroke="#0a0a0a" strokeWidth="2" />
                 <text x={tx} y={ty} textAnchor="middle" dominantBaseline="middle"
-                  fill="#0a0a0a" fontSize="14" fontWeight="700" fontFamily="DM Sans"
+                  fill="#0a0a0a" fontSize={segCount > 14 ? "9" : segCount > 8 ? "11" : "14"} fontWeight="700" fontFamily="DM Sans"
                   transform={`rotate(${textRotate},${tx},${ty})`}>
                   {seg}%
                 </text>
@@ -1058,7 +1078,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const getWheelSegs = () => {
     if (wheelMode === 'debtor' && st) {
       const thresh = parseFloat(st.high_interest_threshold) || 0;
-      const useHigh = thresh > 0 && bal >= thresh;
+       const useHigh = thresh > 0 && bal < thresh;
       const wheelStr = useHigh ? st.high_interest_wheel : st.interest_wheel;
       const segs = parseWheelStr(wheelStr);
       return segs || [];
@@ -1189,10 +1209,10 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
                     <div>
                       {st ? (
                         <div>
-                          {parseFloat(st.high_interest_threshold) > 0 && bal >= parseFloat(st.high_interest_threshold) && (
+                          {parseFloat(st.high_interest_threshold) > 0 &&  conabal < parseFloat(st.high_interest_threshold)st useHigh = thresh > 0 && bal < thresh; && (
                             <div className="alert-item warn" style={{marginBottom:'12px',cursor:'default'}}>
                               <span className="alert-icon">⚡</span>
-                              <span className="alert-text">Balance ({fmt(bal)}) is at/above high interest threshold ({fmt(st.high_interest_threshold)}). Using <strong>high interest wheel</strong>.</span>
+                              <span className="alert-text">Balance ({fmt(bal)}) is below high interest threshold ({fmt(st.high_interest_threshold)}). Using <strong>high interest wheel</strong>.</span>
                             </div>
                           )}
                           {getWheelSegs().length > 0 ? (
