@@ -926,7 +926,7 @@ body {
         <div class="acc-content">
           <div class="codex-rule">
             <span class="rule-headline">Earning tokens</span>
-            <div class="rule-explain">Every &pound;1 paid toward your debt earns 1.5 tokens. Pay your minimum of <strong id="infoMinForTokens">&pound;50</strong> per week and earn <strong id="infoBaseTokens">75</strong> tokens.</div>
+            <div class="rule-explain">Every &pound;1.50 paid toward your debt earns 1 token. Pay your minimum of <strong id="infoMinForTokens">&pound;50</strong> per week and earn <strong id="infoBaseTokens">75</strong> tokens.</div>
           </div>
           <div class="codex-rule">
             <span class="rule-headline">Streak multiplier</span>
@@ -1243,7 +1243,7 @@ function renderInfo() {
   el('infoStatus').textContent = p.is_active ? 'Active' : 'Inactive';
   // Token section dynamic values
   el('infoMinForTokens').textContent = '\u00A3' + formatAmount(weeklyPay);
-  el('infoBaseTokens').textContent = Math.floor(weeklyPay * 1.5);
+  el('infoBaseTokens').textContent = Math.floor(weeklyPay / 1.5);
   el('infoTokenStreak').textContent = streak + ' week' + (streak !== 1 ? 's' : '') + (streak >= 4 ? ' (1.5x active!)' : '');
 }
 
@@ -1491,21 +1491,10 @@ async function spinWheel() {
   mainBtn.textContent = 'SPINNING...';
   document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.disabled = true; });
 
-  // Start the visual spin immediately (fast continuous rotation)
   var rotor = document.getElementById('wheelRotor');
-  rotor.style.transition = 'none';
-  rotor.style.transform = 'rotate(' + wheelRotation + 'deg)';
-
-  // Force reflow
-  void rotor.offsetHeight;
-
-  // Spin fast for the API call duration
-  var fastSpin = wheelRotation + 2160; // 6 full rotations
-  rotor.style.transition = 'transform 3s linear';
-  rotor.style.transform = 'rotate(' + fastSpin + 'deg)';
 
   try {
-    // Call the secure server-side function
+    // Call the server FIRST to get the actual result
     var result = await sb.rpc('spin_wheel', { wheel_type: currentWheelTier });
 
     if (result.error) throw result.error;
@@ -1518,6 +1507,79 @@ async function spinWheel() {
       updateWheelButtons();
       return;
     }
+
+    // Find which segment the result corresponds to
+    var n = config.labels.length;
+    var resultIdx = 0;
+    var resultStr = String(data.result);
+    for (var i = 0; i < config.labels.length; i++) {
+      var lbl = config.labels[i].replace(/[£%]/g, '');
+      if (lbl === resultStr) { resultIdx = i; break; }
+    }
+
+    // Calculate final angle so this segment lands at the pointer (top)
+    var segDeg = 360 / n;
+    // The pointer is at the top (12 o'clock). Segment 0 starts at -90deg (also 12 o'clock).
+    // To land segment resultIdx at the pointer, we need to rotate so the middle of that segment is at 0deg (top).
+    var segMiddle = resultIdx * segDeg + segDeg / 2;
+    var targetDeg = 360 - segMiddle;
+    // Add extra full rotations for drama (7-10 spins)
+    var extraSpins = (7 + Math.floor(Math.random() * 4)) * 360;
+    var finalRotation = wheelRotation + extraSpins + targetDeg;
+    // Normalize so we don't accumulate tiny errors
+    wheelRotation = finalRotation;
+
+    // Now animate the spin
+    rotor.style.transition = 'none';
+    void rotor.offsetHeight; // force reflow
+    rotor.style.transition = 'transform 5s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+    rotor.style.transform = 'rotate(' + finalRotation + 'deg)';
+
+    // Wait for spin to finish, then show result
+    setTimeout(function() {
+      currentProfile.token_balance = data.token_balance;
+      currentProfile.current_balance = data.new_balance;
+
+      var icon = '';
+      if (data.fine === 0) {
+        icon = '&#9733;';
+      } else if (currentWheelTier === 'bronze') {
+        icon = '&#9888;';
+      } else if (currentWheelTier === 'gold') {
+        icon = '&#128293;';
+      } else {
+        icon = '&#9878;';
+      }
+
+      document.getElementById('wheelResultIcon').innerHTML = icon;
+      document.getElementById('wheelResultText').textContent = data.label;
+      document.getElementById('wheelResultDetail').innerHTML =
+        'New balance: <strong>&pound;' + formatAmount(data.new_balance) + '</strong><br>' +
+        'Tokens remaining: <strong>' + data.token_balance + '</strong>';
+      document.getElementById('wheelResultWrap').style.display = 'flex';
+
+      updateWheelButtons();
+      document.getElementById('dashBalance').textContent = formatAmount(data.new_balance);
+      document.getElementById('dashTokens').textContent = data.token_balance.toLocaleString();
+      document.getElementById('dashTokenBar').textContent = data.token_balance.toLocaleString();
+
+      Promise.all([loadLedger(), loadTokens()]).then(function() {
+        renderLedger('all');
+        renderTokenTable();
+      });
+
+      isSpinning = false;
+      mainBtn.textContent = 'SPIN THE WHEEL';
+      updateWheelButtons();
+    }, 5200);
+
+  } catch (err) {
+    alert('Spin failed: ' + (err.message || 'Unknown error'));
+    isSpinning = false;
+    mainBtn.textContent = 'SPIN THE WHEEL';
+    updateWheelButtons();
+  }
+}
 
     // Calculate where the wheel should land
     var n = config.labels.length;
