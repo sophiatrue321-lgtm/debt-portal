@@ -1179,7 +1179,7 @@ async function loadApp(user) {
   document.getElementById('userAvatar').textContent = code ? code.replace(/\D/g,'') : name.charAt(0).toUpperCase();
 
   // Load all data
-  await Promise.all([loadLedger(), loadTokens(), loadStipulations()]);
+  await Promise.all([loadLedger(), loadTokens(), loadStipulations(), loadSubmissions()]);
   renderDashboard();
   renderInfo();
   renderStipulations();
@@ -1845,8 +1845,6 @@ async function submitPayment() {
   btn.disabled = false;
   btn.textContent = 'SUBMIT FOR APPROVAL';
 }
-  
-  await Promise.all([loadLedger(), loadTokens(), loadStipulations(), loadSubmissions()]);
   
 // ===== ENTER KEY =====
 document.addEventListener('keydown', function(e) {
