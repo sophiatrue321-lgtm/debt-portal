@@ -1339,7 +1339,7 @@ async function loadLedger() {
     .from('ledger')
     .select('*')
     .eq('profile_id', currentProfile.id)
-    .order('row_order', { ascending: true });
+    .order('created_at', { ascending: true });
 
   ledgerData = error ? [] : (data || []);
 }
