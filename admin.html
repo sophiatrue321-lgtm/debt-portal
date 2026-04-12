@@ -1175,7 +1175,9 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
     setLd(true); setErr(''); setOk('');
     try {
       const now = new Date().toISOString();
-      await insertLedger({ profile_id:sid, entry_type:type, entry_date:now, amount:isPay?-ca:ca, balance_after:nb, description:notes||null, admin_fee:fee>0?fee:0, created_at:now, tokens_awarded:te>0?te:0, payment_method:payMethod||null });
+      const maxRowRes = await sf(`/rest/v1/ledger?profile_id=eq.${sid}&select=row_order&order=row_order.desc&limit=1`);
+      const nextRow = (maxRowRes && maxRowRes[0] ? (maxRowRes[0].row_order || 0) + 1 : 1);
+      await insertLedger({ profile_id:sid, entry_type:type, entry_date:now, amount:isPay?-ca:ca, balance_after:nb, description:notes||null, admin_fee:fee>0?fee:0, created_at:now, tokens_awarded:te>0?te:0, payment_method:payMethod||null, row_order:nextRow });
       await patchProfile(sid, { current_balance: nb });
       if (te>0) {
         const ct=parseFloat(pr.token_balance)||0; const ce=parseFloat(pr.tokens_earned)||0;
