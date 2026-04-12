@@ -519,8 +519,9 @@ function generateAlerts(profiles, stips, activity) {
         alerts.push({
           type: 'danger',
           icon: '🚨',
-          text: `<strong>${p.debtor_number} ${p.display_name}</strong> — payment overdue! Last payment was ${lastPayDate ? Math.floor(daysSinceLastPay) + ' days ago' : 'never'}. Due: ${st.payment_day}.`,
-          pid: p.id
+          text: `<strong>${p.debtor_number} ${p.display_name}</strong> — payment overdue! Last payment was ${lastPayDate ? Math.floor(daysSinceLastPay) + ' days ago' : 'never'}. Due: ${st.payment_day}.`,           
+          pid: p.id,           
+          key: `overdue_${p.debtor_number}`
         });
       }
     }
@@ -534,7 +535,8 @@ function generateAlerts(profiles, stips, activity) {
           type: 'warn',
           icon: '⚠️',
           text: `<strong>${p.debtor_number} ${p.display_name}</strong> — fine review date ${daysOverdue === 0 ? 'is today' : 'was ' + daysOverdue + ' day(s) ago'}. Review fines and update.`,
-          pid: p.id
+          pid: p.id,
+          key: `fine_review_${p.debtor_number}`
         });
       }
     }
@@ -547,7 +549,8 @@ function generateAlerts(profiles, stips, activity) {
         type: 'warn',
         icon: '📈',
         text: `<strong>${p.debtor_number} ${p.display_name}</strong> — balance (${fmt(bal)}) exceeds 150% of contract value (${fmt(ct)}).`,
-        pid: p.id
+          pid: p.id,
+          key: `high_balance_${p.debtor_number}`
       });
     }
   });
@@ -584,7 +587,8 @@ function generateAlerts(profiles, stips, activity) {
           type: 'warn',
           icon: '🎡',
           text: `<strong>${p.debtor_number} ${p.display_name}</strong> — paid <strong>${fmt(weekTotal)}</strong> this week (Sun-Sat). 300+ clause triggered — additional wheel spin due!`,
-          pid: p.id
+          pid: p.id,
+          key: `clause_300_${p.debtor_number}`
         });
       }
     });
@@ -666,24 +670,62 @@ function Feed({ items, onTap, limit=20, privacyMode }) {
   );
 }
 
-function AlertPanel({ alerts, onView }) {
-  if (!alerts || alerts.length === 0) return null;
+function AlertPanel({ alerts, onView, onDismiss, alertPrefs, onTogglePref }) {
+  const visibleAlerts = alerts.filter(a => {
+    if (alertPrefs) {
+      if (a.icon === '🚨' && !alertPrefs.show_overdue_alerts) return false;
+      if (a.icon === '⚠️' && !alertPrefs.show_fine_review_alerts) return false;
+      if (a.icon === '📈' && !alertPrefs.show_high_balance_alerts) return false;
+    }
+    return true;
+  });
+ 
+  const [showSettings, setShowSettings] = useState(false);
+ 
   return (
     <div style={{marginBottom:'24px'}}>
-      <div className="section-title">🔔 Alerts ({alerts.length})</div>
-      <div className="alert-list">
-        {alerts.map((a,i) => (
-          <div className={`alert-item ${a.type==='warn'?'warn':''}`} key={i} onClick={()=>a.pid&&onView?.(a.pid)}>
-            <span className="alert-icon">{a.icon}</span>
-            <span className="alert-text" dangerouslySetInnerHTML={{__html:a.text}} />
-          </div>
-        ))}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+        <div className="section-title" style={{margin:0}}>🔔 Alerts ({visibleAlerts.length})</div>
+        <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'11px'}} onClick={()=>setShowSettings(!showSettings)}>
+          {showSettings ? '✕ Close' : '⚙️ Filter'}
+        </button>
       </div>
+ 
+      {showSettings && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px',display:'flex',flexDirection:'column',gap:'8px'}}>
+          <label className="cb-row" style={{padding:'8px 10px'}}>
+            <input type="checkbox" checked={alertPrefs?.show_overdue_alerts !== false} onChange={()=>onTogglePref?.('show_overdue_alerts')} />
+            <span style={{fontSize:'13px'}}>🚨 Overdue payments</span>
+          </label>
+          <label className="cb-row" style={{padding:'8px 10px'}}>
+            <input type="checkbox" checked={alertPrefs?.show_fine_review_alerts !== false} onChange={()=>onTogglePref?.('show_fine_review_alerts')} />
+            <span style={{fontSize:'13px'}}>⚠️ Fine review dates</span>
+          </label>
+          <label className="cb-row" style={{padding:'8px 10px'}}>
+            <input type="checkbox" checked={alertPrefs?.show_high_balance_alerts !== false} onChange={()=>onTogglePref?.('show_high_balance_alerts')} />
+            <span style={{fontSize:'13px'}}>📈 High balance warnings</span>
+          </label>
+        </div>
+      )}
+ 
+      {visibleAlerts.length === 0 ? (
+        <div style={{fontSize:'13px',color:'var(--text-muted)',textAlign:'center',padding:'12px'}}>No alerts to show</div>
+      ) : (
+        <div className="alert-list">
+          {visibleAlerts.map((a,i) => (
+            <div className={`alert-item ${a.type==='warn'?'warn':''}`} key={a.key||i} style={{position:'relative'}}>
+              <span className="alert-icon" onClick={()=>a.pid&&onView?.(a.pid)} style={{cursor:'pointer'}}>{a.icon}</span>
+              <span className="alert-text" onClick={()=>a.pid&&onView?.(a.pid)} style={{cursor:'pointer'}} dangerouslySetInnerHTML={{__html:a.text}} />
+              <button onClick={(e)=>{e.stopPropagation();onDismiss?.(a.key);}} style={{background:'none',border:'none',color:'var(--text-muted)',fontSize:'16px',cursor:'pointer',padding:'2px 6px',flexShrink:0,marginLeft:'4px'}} title="Dismiss">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function Dashboard({ profiles, activity, onView, alerts, privacyMode }) {
+function Dashboard({ profiles, activity, onView, alerts, privacyMode, alertPrefs, onDismiss, onTogglePref }) {
   const tot = profiles.reduce((s,p)=>s+(parseFloat(p.current_balance)||0),0);
   const act = profiles.filter(p=>p.is_active!==false&&p.standing!=='inactive').length;
   const tok = profiles.reduce((s,p)=>s+(parseFloat(p.token_balance)||0),0);
@@ -695,7 +737,7 @@ function Dashboard({ profiles, activity, onView, alerts, privacyMode }) {
         <div className="stat-card"><div className="stat-label">Active Debtors</div><div className="stat-value sm">{act}</div></div>
         <div className="stat-card"><div className="stat-label">Total Tokens</div><div className="stat-value sm">{tok}</div></div>
       </div>
-      <AlertPanel alerts={alerts} onView={onView} />
+      <AlertPanel alerts={alerts} onView={onView} onDismiss={onDismiss} alertPrefs={alertPrefs} onTogglePref={onTogglePref} />
       <div className="section-title">📋 Recent Activity</div>
       <Feed items={activity} onTap={onView} privacyMode={privacyMode} />
     </div>
@@ -1931,6 +1973,41 @@ function App() {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [usernames, setUsernames] = useState({});
   const [alerts, setAlerts] = useState([]);
+  const [alertPrefs, setAlertPrefs] = useState({ show_overdue_alerts: true, show_fine_review_alerts: true, show_high_balance_alerts: true, dismissed_alerts: [] });
+ 
+  // Load alert prefs from Supabase
+  const loadAlertPrefs = useCallback(async () => {
+    try {
+      const d = await sf('/rest/v1/admin_preferences?admin_id=eq.' + ADMIN_ID + '&select=*');
+      if (d && d[0]) setAlertPrefs(d[0]);
+    } catch(e) { console.log('Alert prefs not loaded:', e); }
+  }, []);
+ 
+  const dismissAlert = useCallback(async (key) => {
+    if (!key) return;
+    const newDismissed = [...(alertPrefs.dismissed_alerts || []), key];
+    const updated = { ...alertPrefs, dismissed_alerts: newDismissed };
+    setAlertPrefs(updated);
+    try {
+      await sf('/rest/v1/admin_preferences?admin_id=eq.' + ADMIN_ID, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({ dismissed_alerts: JSON.stringify(newDismissed), updated_at: new Date().toISOString() })
+      });
+    } catch(e) { console.log('Failed to save dismissed alert:', e); }
+  }, [alertPrefs]);
+ 
+  const toggleAlertPref = useCallback(async (field) => {
+    const updated = { ...alertPrefs, [field]: !alertPrefs[field] };
+    setAlertPrefs(updated);
+    try {
+      await sf('/rest/v1/admin_preferences?admin_id=eq.' + ADMIN_ID, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({ [field]: !alertPrefs[field], updated_at: new Date().toISOString() })
+      });
+    } catch(e) { console.log('Failed to save alert pref:', e); }
+  }, [alertPrefs]);
 
   useEffect(() => { (async()=>{ if(await refresh()) setAuth(true); setChk(false); })(); }, []);
 
@@ -1943,7 +2020,7 @@ function App() {
       setStips(s||[]);
       // Generate alerts
       const al = generateAlerts(p||[], s||[], a||[]);
-      setAlerts(al);
+      setAlerts(al.filter(a => !(alertPrefs.dismissed_alerts || []).includes(a.key)));
     } catch(e) { console.error(e); }
     setDl(false);
   }, []);
@@ -1957,7 +2034,8 @@ function App() {
   }, [auth, profs]);
 
   useEffect(() => { if(auth) load(); }, [auth, load]);
-
+  useEffect(() => { if(auth) loadAlertPrefs(); }, [auth, loadAlertPrefs]);
+  
   const vd = (id) => { setSel(id); setPg('detail'); };
   const lo = () => { logout(); setAuth(false); setProfs([]); setAct([]); };
 
@@ -1976,7 +2054,7 @@ function App() {
         </div>
       </header>
       {dl&&profs.length===0 ? <div className="loading-screen" style={{minHeight:'60vh'}}><div className="spinner"/><span>Loading empire data...</span></div> : <>
-        {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} />}
+        {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} alertPrefs={alertPrefs} onDismiss={dismissAlert} onTogglePref={toggleAlertPref} />}
         {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
