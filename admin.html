@@ -1142,7 +1142,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
       <div className="form-group"><label className="form-label">Debtor</label>
         <select className="fs" value={sid} onChange={e=>{setSid(e.target.value);setOk('');setShowWheel(false);}}>
           <option value="">Select debtor...</option>
-          {profiles.map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name} ({fmt(p.current_balance)})</option>))}
+          {profiles.map(p=>{const un=p.username?` @${p.username}`:'';return(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name}{privacyMode?'':un} ({fmt(p.current_balance)})</option>);})}
         </select>
       </div>
 
