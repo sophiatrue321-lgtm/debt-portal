@@ -1197,6 +1197,8 @@ function renderDashboard() {
       html += '<td>' + formatDate(row.entry_date) + '</td>';
       html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
       html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
+      html += '<td>' + (row.admin_fee > 0 ? '\u00A3' + formatAmount(row.admin_fee) : '\u2014') + '</td>';
+      html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -1260,7 +1262,9 @@ function renderLedger(filter) {
     html += '<tr>';
       html += '<td>' + formatDate(row.entry_date) + '</td>';
       html += '<td>' + getTypeBadge(row.entry_type) + '</td>';
+      html += '<td>' + (row.description || '\u2014') + '</td>';
       html += '<td class="' + (isNeg ? 'amount-neg' : 'amount-pos') + '">' + (isNeg ? '-' : '+') + '\u00A3' + formatAmount(row.amount) + '</td>';
+      html += '<td>' + (row.admin_fee > 0 ? '\u00A3' + formatAmount(row.admin_fee) : '\u2014') + '</td>';
       html += '<td>\u00A3' + formatAmount(row.balance_after) + '</td>';
       html += '</tr>';
   });
