@@ -1013,9 +1013,10 @@ function SpinWheel({ segments, onResult, balance }) {
     setTimeout(() => {
       const pct = segments[winIdx];
       const amt = balance ? (pct / 100) * balance : 0;
-      setResult({ pct, amt, idx: winIdx });
+      const resultData = { pct, amt, idx: winIdx, segments };
+      setResult(resultData);
       setSpinning(false);
-      onResult?.(pct);
+      onResult?.(pct, resultData);
     }, 4000);
   };
 
@@ -1090,6 +1091,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const [selPreset, setSelPreset] = useState(null);
   const [newPresetName, setNewPresetName] = useState('');
   const [showSavePreset, setShowSavePreset] = useState(false);
+  const [sendSpinNotif, setSendSpinNotif] = useState(true);
 
   const pr = profiles.find(p=>p.id===sid);
   const st = stips.find(s=>s.profile_id===sid);
@@ -1137,8 +1139,11 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
     return [];
   };
 
-  const handleWheelResult = (pctResult) => {
+  const [lastWheelData, setLastWheelData] = useState(null);
+ 
+  const handleWheelResult = (pctResult, resultData) => {
     setPct(String(pctResult));
+    if (resultData) setLastWheelData(resultData);
   };
 
   const savePreset = async () => {
@@ -1174,7 +1179,37 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
         await patchProfile(sid, { token_balance:ct+te, tokens_earned:ce+te });
         await insertTokenTx({ profile_id:sid, transaction_date:now, amount:te, balance_after:ct+te, description:`${te} tokens for ${fmt(ca)} payment`, created_at:now });
       }
-      setOk(`✅ ${type} of ${fmt(ca)}${fee>0?` + ${fmt(fee)} fee`:''} recorded for ${privacyMode ? pr.debtor_number : pr.display_name}. New balance: ${fmt(nb)}${te>0?`. 🪙 ${te} tokens!`:''}`);
+      let okMsg = `✅ ${type} of ${fmt(ca)}${fee>0?` + ${fmt(fee)} fee`:''} recorded for ${privacyMode ? pr.debtor_number : pr.display_name}. New balance: ${fmt(nb)}${te>0?`. 🪙 ${te} tokens!`:''}`;
+ 
+      // If this was an interest spin, send wheel notification to debtor
+      if (isInt && sendSpinNotif && lastWheelData) {
+        try {
+          await sf('/rest/v1/notifications', {
+            method: 'POST',
+            headers: { 'Prefer': 'return=representation' },
+            body: JSON.stringify({
+              profile_id: sid,
+              notification_type: 'wheel_spin',
+              title: 'Interest Wheel Spun',
+              message: 'The Empress spun your interest wheel. Result: ' + pct + '% — £' + (parseFloat(ca)||0).toFixed(2) + ' added to your balance. New balance: £' + (parseFloat(nb)||0).toFixed(2) + '.',
+              wheel_data: {
+                segments: lastWheelData.segments,
+                result_index: lastWheelData.idx,
+                result_pct: parseFloat(pct),
+                interest_amount: parseFloat(ca) || 0,
+                new_balance: parseFloat(nb) || 0,
+                show_animation: sendSpinNotif
+              },
+              created_at: new Date().toISOString()
+            })
+          });
+          okMsg += '\n📨 Wheel spin notification sent to debtor.';
+        } catch(notifErr) {
+          okMsg += '\n⚠️ Failed to send spin notification: ' + notifErr.message;
+        }
+      }
+ 
+      setOk(okMsg);
       setAmt(''); setPct(''); setNotes(''); setPayMethod(''); setShowWheel(false);
       onDone?.();
     } catch(e) { setErr('Error: '+e.message); }
@@ -1236,6 +1271,17 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
             {pr&&pct&&<div className="form-hint">{pct}% of {fmt(bal)} = {fmt(ca)}</div>}
           </div>
 
+{/* Send spin to debtor toggle */}
+          {pct && parseFloat(pct) > 0 && (
+            <div style={{marginBottom:'12px'}}>
+              <label className="cb-row">
+                <input type="checkbox" checked={sendSpinNotif} onChange={e=>setSendSpinNotif(e.target.checked)} />
+                <span style={{fontSize:'13px'}}>🎡 Send wheel spin animation to debtor</span>
+              </label>
+              <div className="form-hint">Debtor will see the wheel spin and result on their portal next time they log in.</div>
+            </div>
+          )}
+          
           {sid && (
             <div style={{marginBottom:'16px'}}>
               <button className="btn btn-outline btn-sm" onClick={()=>setShowWheel(!showWheel)} style={{width:'100%',marginBottom:'12px'}}>
