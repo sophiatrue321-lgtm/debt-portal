@@ -1410,7 +1410,7 @@ function EditClauses({ st, pid, onSaved }) {
   const save = async () => {
     setSaving(true); setOk('');
     try {
-      const clean = clauses.filter(c => typeof c === 'string' ? c.trim() : c);
+      const clean = clauses.filter(c => { if (typeof c === 'string') return c.trim().length > 0; if (c && typeof c === 'object') return true; return Boolean(c); });
       await patchStipulations(pid, { special_clauses_json: JSON.stringify(clean) });
       setOk('✅ Clauses updated');
       onSaved?.();
