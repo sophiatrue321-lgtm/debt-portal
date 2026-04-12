@@ -408,6 +408,7 @@ const getAllLedger = (n=80) => sf(`/rest/v1/ledger?select=*,profiles!inner(displ
 const getTokenTx = (pid) => sf(`/rest/v1/token_transactions?profile_id=eq.${pid}&select=*&order=created_at.desc&limit=100`);
 const getStips = async (pid) => { const d = await sf(`/rest/v1/stipulations?profile_id=eq.${pid}&select=*&limit=1`); return d?.[0]; };
 const getAllStips = () => sf('/rest/v1/stipulations?select=*');
+const getPendingTx = () => sf('/rest/v1/pending_transactions?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,current_balance)&order=created_at.desc');
 
 const insertLedger = (e) => sf('/rest/v1/ledger', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
 const patchProfile = (id, d) => sf(`/rest/v1/profiles?id=eq.${id}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ ...d, updated_at: new Date().toISOString() }) });
@@ -1962,6 +1963,201 @@ If a balance doesn't update on the portal, check:
   );
 }
 
+// ========== APPROVALS PAGE ==========
+function Approvals({ pending, onDone, privacyMode }) {
+  const [reviewItem, setReviewItem] = useState(null);
+  const [editAmt, setEditAmt] = useState('');
+  const [editFee, setEditFee] = useState('0');
+  const [editNote, setEditNote] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [showReject, setShowReject] = useState(false);
+  const [ld, setLd] = useState(false);
+  const [ok, setOk] = useState('');
+  const [err, setErr] = useState('');
+ 
+  const openReview = (item) => {
+    setReviewItem(item);
+    setEditAmt(String(item.amount));
+    setEditFee('0');
+    setEditNote(item.debtor_note || '');
+    setShowReject(false);
+    setRejectReason('');
+    setOk('');
+    setErr('');
+    // Auto-read admin fee from stips if available
+    const profile = item.profiles;
+    if (profile) {
+      // We'll use the default fee for now, admin can edit
+      setEditFee('5');
+    }
+  };
+ 
+  const doApprove = async () => {
+    if (!reviewItem) return;
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await sf('/rest/v1/rpc/approve_pending_transaction', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_pending_id: reviewItem.id,
+          p_admin_fee: parseFloat(editFee) || 0,
+          p_admin_note: editNote || null
+        })
+      });
+      if (result && result.error) { setErr(result.error); setLd(false); return; }
+      setOk(`✅ Payment approved for ${privacyMode ? reviewItem.profiles?.debtor_number : reviewItem.profiles?.display_name}. Balance updated, tokens awarded.`);
+      setReviewItem(null);
+      onDone?.();
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+ 
+  const doReject = async () => {
+    if (!reviewItem) return;
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await sf('/rest/v1/rpc/reject_pending_transaction', {
+        method: 'POST',
+        body: JSON.stringify({
+          p_pending_id: reviewItem.id,
+          p_reason: rejectReason || null
+        })
+      });
+      if (result && result.error) { setErr(result.error); setLd(false); return; }
+      setOk(`❌ Payment rejected for ${privacyMode ? reviewItem.profiles?.debtor_number : reviewItem.profiles?.display_name}.`);
+      setReviewItem(null);
+      onDone?.();
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+ 
+  return (
+    <div className="page">
+      <div className="page-title">📥 Pending Approvals ({pending.length})</div>
+ 
+      {ok && <div className="success-msg" style={{marginBottom:'16px'}}>{ok}</div>}
+      {err && <div className="error-msg" style={{marginBottom:'16px'}}>{err}</div>}
+ 
+      {pending.length === 0 && !reviewItem && (
+        <div className="empty-state">No pending submissions — all clear!</div>
+      )}
+ 
+      {/* === REVIEW PANEL === */}
+      {reviewItem && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'20px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+            <div>
+              <div style={{fontSize:'16px',fontWeight:600,color:'var(--gold)'}}>
+                {privacyMode ? reviewItem.profiles?.debtor_number : reviewItem.profiles?.display_name}
+              </div>
+              <div style={{fontSize:'12px',color:'var(--text-dim)'}}>
+                {reviewItem.profiles?.debtor_number}
+                {!privacyMode && reviewItem.profiles?.username && <span style={{fontStyle:'italic'}}> — @{reviewItem.profiles.username}</span>}
+              </div>
+            </div>
+            <button className="btn btn-sm btn-outline" onClick={()=>setReviewItem(null)}>✕ Close</button>
+          </div>
+ 
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}}>
+            <div className="di"><div className="di-label">Submitted Amount</div><div className="di-value">{fmt(reviewItem.amount)}</div></div>
+            <div className="di"><div className="di-label">Platform</div><div className="di-value">{reviewItem.platform||'—'}</div></div>
+            <div className="di"><div className="di-label">Date</div><div className="di-value">{fmtD(reviewItem.transaction_date)}</div></div>
+            <div className="di"><div className="di-label">Current Balance</div><div className="di-value">{fmt(reviewItem.profiles?.current_balance)}</div></div>
+          </div>
+ 
+          {reviewItem.debtor_note && (
+            <div style={{background:'var(--bg-input)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',padding:'10px 14px',marginBottom:'16px',fontSize:'13px',color:'var(--text-dim)'}}>
+              <span style={{color:'var(--gold)',fontSize:'11px',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px'}}>Debtor's Note:</span><br/>
+              {reviewItem.debtor_note}
+            </div>
+          )}
+ 
+          {!showReject ? (
+            <div>
+              <div style={{fontSize:'12px',fontWeight:600,color:'var(--gold)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'10px'}}>Approve with adjustments</div>
+ 
+              <div className="form-group">
+                <label className="form-label">Amount (£) — edit if needed</label>
+                <input className="fi" type="number" inputMode="decimal" value={editAmt} onChange={e=>setEditAmt(e.target.value)} />
+              </div>
+ 
+              <div className="form-group">
+                <label className="form-label">Admin Fee (£)</label>
+                <input className="fi" type="number" inputMode="decimal" value={editFee} onChange={e=>setEditFee(e.target.value)} />
+              </div>
+ 
+              <div className="form-group">
+                <label className="form-label">Admin Note (optional)</label>
+                <input className="fi" type="text" value={editNote} onChange={e=>setEditNote(e.target.value)} placeholder="Note for your records..." />
+              </div>
+ 
+              {parseFloat(editAmt) > 0 && (
+                <div className="preview-box" style={{marginBottom:'16px'}}>
+                  <div className="preview-title">Preview</div>
+                  <div className="preview-row"><span>Current Balance</span><span>{fmt(reviewItem.profiles?.current_balance)}</span></div>
+                  <div className="preview-row"><span>Payment</span><span style={{color:'var(--green)'}}>-{fmt(parseFloat(editAmt))}</span></div>
+                  {parseFloat(editFee) > 0 && <div className="preview-row"><span>Admin Fee</span><span style={{color:'var(--red)'}}>+{fmt(parseFloat(editFee))}</span></div>}
+                  <div className="preview-row total"><span>New Balance</span><span>{fmt((parseFloat(reviewItem.profiles?.current_balance)||0) - (parseFloat(editAmt)||0) + (parseFloat(editFee)||0))}</span></div>
+                </div>
+              )}
+ 
+              <div style={{display:'flex',gap:'8px'}}>
+                <button className="btn" onClick={doApprove} disabled={ld} style={{flex:1}}>
+                  {ld ? <span className="spinner"/> : '✅ Approve'}
+                </button>
+                <button className="btn btn-danger" onClick={()=>setShowReject(true)} disabled={ld} style={{flex:1}}>
+                  ❌ Reject
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{fontSize:'12px',fontWeight:600,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'10px'}}>Reject this submission</div>
+ 
+              <div className="form-group">
+                <label className="form-label">Reason (optional — debtor will see this)</label>
+                <textarea className="ft" value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="e.g. Payment not found, duplicate submission..." />
+              </div>
+ 
+              <div style={{display:'flex',gap:'8px'}}>
+                <button className="btn btn-danger" onClick={doReject} disabled={ld} style={{flex:1}}>
+                  {ld ? <span className="spinner"/> : '❌ Confirm Reject'}
+                </button>
+                <button className="btn btn-outline" onClick={()=>setShowReject(false)} disabled={ld} style={{flex:1}}>
+                  ← Back
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+ 
+      {/* === PENDING LIST === */}
+      {!reviewItem && pending.length > 0 && (
+        <div className="feed-list">
+          {pending.map(tx => (
+            <div className="feed-item" key={tx.id} onClick={()=>openReview(tx)} style={{cursor:'pointer'}}>
+              <div className="feed-icon fi-pay">💰</div>
+              <div className="feed-body">
+                <div className="feed-text">
+                  <strong>{tx.profiles?.debtor_number} {privacyMode ? '••••' : tx.profiles?.display_name}</strong>
+                  {!privacyMode && tx.profiles?.username && <span style={{color:'var(--text-muted)',fontStyle:'italic'}}> @{tx.profiles.username}</span>}
+                  {' — '}{fmt(tx.amount)} via {tx.platform||'Unknown'}
+                </div>
+                <div className="feed-time">
+                  {fmtD(tx.transaction_date)} · Submitted {ago(tx.created_at)}
+                  {tx.debtor_note && <span style={{color:'var(--text-dim)'}}> · "{tx.debtor_note}"</span>}
+                </div>
+              </div>
+              <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+  
 // ========== MAIN APP ==========
 function App() {
   const [auth, setAuth] = useState(false);
@@ -1975,6 +2171,7 @@ function App() {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [usernames, setUsernames] = useState({});
   const [alerts, setAlerts] = useState([]);
+  const [pendingTx, setPendingTx] = useState([]);
   const [alertPrefs, setAlertPrefs] = useState({ show_overdue_alerts: true, show_fine_review_alerts: true, show_high_balance_alerts: true, dismissed_alerts: [] });
  
   // Load alert prefs from Supabase
@@ -2016,10 +2213,12 @@ function App() {
   const load = useCallback(async () => {
     setDl(true);
     try {
-      const [p, a, s] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips()]);
+      const [p, a, s, pt] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips(), getPendingTx()]);
       setProfs(p||[]);
       setAct(a||[]);
       setStips(s||[]);
+      setPendingTx(pt||[]);
+      
       // Generate alerts
       const al = generateAlerts(p||[], s||[], a||[]);
       setAlerts(al);
@@ -2060,6 +2259,7 @@ function App() {
         {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
+        {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
         {pg==='activity'&&<div className="page"><div className="page-title">Activity Feed</div><Feed items={act} onTap={vd} limit={100} privacyMode={privacyMode} /></div>}
         {pg==='settings'&&<Settings onLogout={lo} />}
         {pg==='guide'&&<Guide />}
@@ -2073,6 +2273,10 @@ function App() {
         <button className={`nav-item ${pg==='debtors'||pg==='detail'?'active':''}`} onClick={()=>setPg('debtors')}><span className="nav-icon">👥</span><span className="nav-label">Debtors</span></button>
         <button className={`nav-item ${pg==='add'?'active':''}`} onClick={()=>setPg('add')}><span className="nav-icon">➕</span><span className="nav-label">Add</span></button>
         <button className={`nav-item ${pg==='onboard'?'active':''}`} onClick={()=>setPg('onboard')}><span className="nav-icon">🆕</span><span className="nav-label">Onboard</span></button>
+        <button className={`nav-item ${pg==='approvals'?'active':''}`} onClick={()=>setPg('approvals')} style={{position:'relative'}}>
+          <span className="nav-icon">📥</span><span className="nav-label">Approvals</span>
+          {pendingTx.length>0&&<span className="badge">{pendingTx.length}</span>}
+        </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
