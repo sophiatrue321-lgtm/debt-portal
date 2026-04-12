@@ -1184,32 +1184,80 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
       }
       let okMsg = `✅ ${type} of ${fmt(ca)}${fee>0?` + ${fmt(fee)} fee`:''} recorded for ${privacyMode ? pr.debtor_number : pr.display_name}. New balance: ${fmt(nb)}${te>0?`. 🪙 ${te} tokens!`:''}`;
  
-      // If this was an interest spin, send wheel notification to debtor
-      if (isInt && sendSpinNotif && lastWheelData) {
-        try {
+      // Send notification to debtor for all transaction types
+      try {
+        const notifIcons = { 'Payment': '💰', 'Interest': '📈', 'Fine': '⚠️', 'Deposit': '🏦', 'Debt Game': '🎮' };
+        const notifIcon = notifIcons[type] || '📋';
+ 
+        // Build notification message
+        let notifTitle = '';
+        let notifMsg = '';
+ 
+        if (type === 'Payment') {
+          notifTitle = 'Payment Recorded';
+          notifMsg = `Your payment of ${fmt(ca)} has been recorded.`;
+          if (fee > 0) notifMsg += ` Admin fee: ${fmt(fee)}.`;
+          if (te > 0) notifMsg += ` You earned ${te} tokens!`;
+          notifMsg += ` New balance: ${fmt(nb)}.`;
+        } else if (type === 'Interest') {
+          notifTitle = 'Interest Applied';
+          notifMsg = `${pct}% interest (${fmt(ca)}) has been applied to your balance.`;
+          if (fee > 0) notifMsg += ` Admin fee: ${fmt(fee)}.`;
+          notifMsg += ` New balance: ${fmt(nb)}.`;
+        } else if (type === 'Fine') {
+          notifTitle = 'Fine Added';
+          notifMsg = `A fine of ${fmt(ca)} has been added to your balance.`;
+          if (notes) notifMsg += ` Reason: ${notes}.`;
+          if (fee > 0) notifMsg += ` Admin fee: ${fmt(fee)}.`;
+          notifMsg += ` New balance: ${fmt(nb)}.`;
+        } else if (type === 'Deposit') {
+          notifTitle = 'Deposit Recorded';
+          notifMsg = `A deposit of ${fmt(ca)} has been recorded.`;
+          if (fee > 0) notifMsg += ` Admin fee: ${fmt(fee)}.`;
+          notifMsg += ` New balance: ${fmt(nb)}.`;
+        } else if (type === 'Debt Game') {
+          notifTitle = 'Debt Game Result';
+          notifMsg = `A debt game result of ${fmt(ca)} has been applied.`;
+          if (notes) notifMsg += ` Details: ${notes}.`;
+          if (fee > 0) notifMsg += ` Admin fee: ${fmt(fee)}.`;
+          notifMsg += ` New balance: ${fmt(nb)}.`;
+        }
+ 
+        // For interest with wheel spin, include wheel data
+        let wheelData = null;
+        if (isInt && sendSpinNotif && lastWheelData) {
+          wheelData = {
+            segments: lastWheelData.segments,
+            result_index: lastWheelData.idx,
+            result_pct: parseFloat(pct),
+            interest_amount: parseFloat(ca) || 0,
+            new_balance: parseFloat(nb) || 0,
+            show_animation: true
+          };
+          notifTitle = 'Interest Wheel Spun';
+          notifMsg = `The Empress spun your interest wheel. Result: ${pct}% — ${fmt(ca)} added to your balance. New balance: ${fmt(nb)}.`;
+        }
+ 
+        // Skip notification for interest wheel spins if toggle is off
+        const shouldSend = !(isInt && lastWheelData && !sendSpinNotif);
+ 
+        if (shouldSend) {
           await sf('/rest/v1/notifications', {
             method: 'POST',
             headers: { 'Prefer': 'return=representation' },
             body: JSON.stringify({
               profile_id: sid,
-              notification_type: 'wheel_spin',
-              title: 'Interest Wheel Spun',
-              message: 'The Empress spun your interest wheel. Result: ' + pct + '% — £' + (parseFloat(ca)||0).toFixed(2) + ' added to your balance. New balance: £' + (parseFloat(nb)||0).toFixed(2) + '.',
-              wheel_data: {
-                segments: lastWheelData.segments,
-                result_index: lastWheelData.idx,
-                result_pct: parseFloat(pct),
-                interest_amount: parseFloat(ca) || 0,
-                new_balance: parseFloat(nb) || 0,
-                show_animation: sendSpinNotif
-              },
+              notification_type: wheelData ? 'wheel_spin' : 'general',
+              title: notifTitle,
+              message: notifMsg,
+              wheel_data: wheelData,
               created_at: new Date().toISOString()
             })
           });
-          okMsg += '\n📨 Wheel spin notification sent to debtor.';
-        } catch(notifErr) {
-          okMsg += '\n⚠️ Failed to send spin notification: ' + notifErr.message;
+          okMsg += '\n📨 Notification sent to debtor.';
         }
+      } catch(notifErr) {
+        okMsg += '\n⚠️ Failed to send notification: ' + notifErr.message;
       }
  
       setOk(okMsg);
