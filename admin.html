@@ -449,6 +449,34 @@ function ago(d) { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s<6
 function tc(t) { if (!t) return ''; const l=t.toLowerCase(); if (l.includes('diamond')) return 't-diamond'; if (l.includes('platinum')) return 't-platinum'; if (l.includes('gold')) return 't-gold'; if (l.includes('silver')) return 't-silver'; return 't-bronze'; }
 function ini(n) { return n ? n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '?'; }
 function calcTok(amt, wp, streak) { if (amt<=0) return 0; const b=Math.floor(amt/1.5); const m=streak>=4?1.5:1; let t=Math.floor(b*m); if (wp&&amt>wp) { const ex=amt-wp; const bb=Math.floor(ex/1.5); t+=Math.floor((Math.floor(bb*2)-bb)*m); } return t; }
+  // ========== WEEK HELPERS ==========
+function getWeekStart(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - day);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getWeekEnd(date) {
+  const start = getWeekStart(date);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return end;
+}
+
+function calcWeeklyPaid(profileId, ledgerItems, weekStartDate) {
+  const weekStart = weekStartDate || getWeekStart(new Date());
+  const weekEnd = getWeekEnd(weekStart);
+  return ledgerItems
+    .filter(a => a.profile_id === profileId
+      && (a.entry_type||'').toLowerCase().includes('payment')
+      && new Date(a.created_at) >= weekStart
+      && new Date(a.created_at) <= weekEnd)
+    .reduce((sum, a) => sum + Math.abs(parseFloat(a.amount) || 0), 0);
+}
+  
 function pj(v) { if (!v) return null; if (typeof v==='object') return v; try { return JSON.parse(v); } catch { return null; } }
 
 function feeInfo(s) {
@@ -568,12 +596,7 @@ function generateAlerts(profiles, stips, activity) {
       const has300clause = /300\+?\s*(paid|in a week|weekly|per week|paid off)/i.test(clauseStr) || /more than\s*\$?£?300/i.test(clauseStr);
       if (!has300clause) return;
  
-      // Calculate this week's payments (Sunday to Saturday)
-      const now = new Date();
-      const dayOfWeek = now.getDay(); // 0=Sunday
-      const weekStart = new Date(now);
-      weekStart.setDate(now.getDate() - dayOfWeek);
-      weekStart.setHours(0, 0, 0, 0);
+      const weekTotal = calcWeeklyPaid(p.id, activity);
  
       const weekPayments = activity.filter(a =>
         a.profile_id === p.id &&
@@ -889,6 +912,10 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
   const fr = feeInfo(st); const cl = clauseInfo(st);
   const un = usernames[pr.debtor_number];
   const displayName = privacyMode ? pr.debtor_number : pr.display_name;
+  // Calculate this week's payment progress
+  const weeklyMin = parseFloat(pr.weekly_payment) || parseFloat(st?.weekly_payment) || 0;
+  const weekPaid = calcWeeklyPaid(pid, lg.map(l => ({...l, profile_id: pid})));
+  const weekPct = weeklyMin > 0 ? Math.min(100, Math.round((weekPaid / weeklyMin) * 100)) : 0;
 
   return (
     <div className="page">
@@ -914,6 +941,22 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         <div className="detail-id">{pr.debtor_number}{pr.tier&&<span className={`tb ${tc(pr.tier)}`}>{pr.tier}</span>}</div>
         <div className="detail-balance">{fmt(pr.current_balance)}</div>
       </div>
+      {/* Weekly Payment Progress */}
+      {weeklyMin > 0 && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'16px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+            <span style={{fontSize:'12px',fontWeight:600,color:'var(--gold)',textTransform:'uppercase',letterSpacing:'0.5px'}}>📊 This Week</span>
+            <span style={{fontSize:'12px',color:'var(--text-dim)'}}>🔥 {pr.payment_streak||0} week streak</span>
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'6px'}}>
+            <span style={{fontSize:'14px',fontWeight:600}}>{fmt(weekPaid)} <span style={{color:'var(--text-dim)',fontWeight:400}}>/ {fmt(weeklyMin)}</span></span>
+            <span style={{fontSize:'13px',color: weekPct >= 100 ? 'var(--green)' : 'var(--text-dim)'}}>{weekPct}%</span>
+          </div>
+          <div style={{height:'6px',background:'var(--bg-input)',borderRadius:'3px',overflow:'hidden'}}>
+            <div style={{height:'100%',width:`${weekPct}%`,background: weekPct >= 100 ? 'var(--green)' : 'var(--gold)',borderRadius:'3px',transition:'width 0.3s'}} />
+          </div>
+        </div>
+      )}
       <div className="detail-grid">
         <div className="di"><div className="di-label">Weekly Payment</div><div className="di-value">{fmt(pr.weekly_payment)}</div></div>
         <div className="di"><div className="di-label">Payment Streak</div><div className="di-value">{pr.payment_streak||0} weeks</div></div>
