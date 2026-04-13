@@ -598,14 +598,6 @@ function generateAlerts(profiles, stips, activity) {
  
       const weekTotal = calcWeeklyPaid(p.id, activity);
  
-      const weekPayments = activity.filter(a =>
-        a.profile_id === p.id &&
-        (a.entry_type || '').toLowerCase().includes('payment') &&
-        new Date(a.created_at) >= weekStart
-      );
- 
-      const weekTotal = weekPayments.reduce((sum, a) => sum + Math.abs(parseFloat(a.amount) || 0), 0);
- 
       if (weekTotal >= 300) {
         alerts.push({
           type: 'warn',
