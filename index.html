@@ -883,7 +883,29 @@ body {
         </div>
         <div class="token-count" id="dashTokenBar">—</div>
       </div>
-      <div class="section-title">Recent activity</div>
+      
+      <!-- WEEKLY PROGRESS TRACKER -->
+      <div id="weeklyProgressWrap" style="margin-top:1.25rem;display:none;">
+        <div style="background:var(--te-surface);border:1px solid var(--te-border);border-radius:10px;padding:1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-size:12px;color:var(--te-gold);font-weight:500;letter-spacing:1.5px;text-transform:uppercase;">This Week</span>
+            <span style="font-size:12px;color:var(--te-text-dim);" id="weekStreakLabel">🔥 0 week streak</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+            <span style="font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:500;color:var(--te-gold);" id="weekPaidLabel">£0</span>
+            <span style="font-size:13px;color:var(--te-text-dim);" id="weekTargetLabel">/ £50 minimum</span>
+          </div>
+          <div style="height:6px;background:var(--te-bg);border-radius:3px;overflow:hidden;">
+            <div id="weekProgressBar" style="height:100%;width:0%;background:var(--te-gold);border-radius:3px;transition:width 0.5s ease;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px;">
+            <span style="font-size:11px;color:var(--te-text-dim);" id="weekPctLabel">0%</span>
+            <span style="font-size:11px;color:var(--te-text-dim);" id="weekDaysLeft"></span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="section-title">Recentactivity</div>
       <div id="dashRecentActivity">
         <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
       </div>
@@ -1413,6 +1435,50 @@ function renderDashboard() {
     document.getElementById('dashRecentActivity').innerHTML = html;
   }
 
+function renderWeeklyProgress() {
+  var wrap = document.getElementById('weeklyProgressWrap');
+  if (!wrap || !currentProfile) return;
+
+  var weeklyMin = currentProfile.weekly_payment || 0;
+  if (weeklyMin <= 0) { wrap.style.display = 'none'; return; }
+
+  // Calculate current week (Sunday to Saturday)
+  var now = new Date();
+  var dayOfWeek = now.getDay(); // 0=Sunday
+  var weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - dayOfWeek);
+  weekStart.setHours(0, 0, 0, 0);
+  var weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
+
+  // Sum payments this week
+  var weekPaid = 0;
+  ledgerData.forEach(function(row) {
+    if ((row.entry_type || '').toLowerCase() !== 'payment') return;
+    var d = new Date(row.created_at);
+    if (d >= weekStart && d <= weekEnd) {
+      weekPaid += Math.abs(row.amount || 0);
+    }
+  });
+
+  var pct = Math.min(100, Math.round((weekPaid / weeklyMin) * 100));
+  var streak = currentProfile.payment_streak || 0;
+  var daysLeft = 6 - dayOfWeek;
+
+  // Update UI
+  wrap.style.display = 'block';
+  document.getElementById('weekPaidLabel').textContent = '\u00A3' + formatAmount(weekPaid);
+  document.getElementById('weekTargetLabel').textContent = '/ \u00A3' + formatAmount(weeklyMin) + ' minimum';
+  document.getElementById('weekPctLabel').textContent = pct + '%';
+  document.getElementById('weekStreakLabel').textContent = '\uD83D\uDD25 ' + streak + ' week' + (streak !== 1 ? 's' : '') + (streak >= 4 ? ' \u2728 1.5x' : '');
+  document.getElementById('weekDaysLeft').textContent = pct >= 100 ? '\u2705 Target met!' : daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + ' left';
+
+  var bar = document.getElementById('weekProgressBar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct >= 100 ? 'var(--te-green)' : 'var(--te-gold)';
+}
+  
   // Recent token activity (last 3)
   if (tokenData.length > 0) {
     var recentTokens = tokenData.slice(0, 3);
@@ -1433,6 +1499,8 @@ function renderDashboard() {
   // Also render ledger & tokens since data is loaded
   renderLedger('all');
   renderTokenTable();
+  renderTokenTable();
+  renderWeeklyProgress();
 }
 
 function renderInfo() {
@@ -1776,6 +1844,7 @@ async function spinWheel() {
       Promise.all([loadLedger(), loadTokens()]).then(function() {
         renderLedger('all');
         renderTokenTable();
+        renderWeeklyProgress();
       });
 
       isSpinning = false;
