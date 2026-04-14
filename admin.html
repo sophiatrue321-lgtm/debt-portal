@@ -413,6 +413,8 @@ const triggerCelebration = () => sf('/rest/v1/rpc/admin_process_weekly_celebrati
 const triggerRankUpdate = () => sf('/rest/v1/rpc/update_last_ranks', { method: 'POST', body: '{}' });
 const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,token_balance)&order=created_at.desc');
 const getAllShopOrders = () => sf('/rest/v1/shop_orders?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=100');
+const markAddonUsed = (id) => sf('/rest/v1/rpc/admin_mark_addon_used', { method: 'POST', body: JSON.stringify({ p_order_id: id }) });
+const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&select=*&order=created_at.desc');
 const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
 const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
 const getAllTasks = () => sf('/rest/v1/tasks?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=200');
@@ -902,7 +904,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
   const [unVal, setUnVal] = useState('');
   const [unSaving, setUnSaving] = useState(false);
 
-  useEffect(() => { (async()=>{ setLd(true); try { const [a,b,c,d]=await Promise.all([getProfile(pid),getLedger(pid),getTokenTx(pid),getStips(pid)]); setPr(a);setLg(b||[]);setTk(c||[]);setSt(d);setUnVal(a?.username||''); } catch(e){console.error(e);} setLd(false); })(); }, [pid]);
+  useEffect(() => { (async()=>{ setLd(true); try { const [a,b,c,d,ad]=await Promise.all([getProfile(pid),getLedger(pid),getTokenTx(pid),getStips(pid),getDebtorAddons(pid).catch(()=>[])]); setPr(a);setLg(b||[]);setTk(c||[]);setSt(d);setUnVal(a?.username||'');setAddons(ad||[]); } catch(e){console.error(e);} setLd(false); })(); }, [pid]);
 
   const saveUsername = async () => {
     setUnSaving(true);
@@ -917,6 +919,8 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
 
   const [showEditFines, setShowEditFines] = useState(false);
   const [showEditClauses, setShowEditClauses] = useState(false);
+  const [addons, setAddons] = useState([]);
+  const [addonMsg, setAddonMsg] = useState('');
 
   const reloadStips = async () => { try { const d = await getStips(pid); setSt(d); } catch(e){} };
 
@@ -983,6 +987,23 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         {pr.devotion_rank&&<div className="di"><div className="di-label">Devotion Rank</div><div className="di-value">{pr.devotion_rank}</div></div>}
         {pr.member_since&&<div className="di"><div className="di-label">Member Since</div><div className="di-value">{fmtD(pr.member_since)}</div></div>}
       </div>
+
+      {/* Active Add-ons */}
+      {addons.length > 0 && (
+        <div style={{background:'rgba(92,184,122,0.06)',border:'1px solid rgba(92,184,122,0.25)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'16px'}}>
+          <div style={{fontSize:'12px',fontWeight:600,color:'var(--green)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'10px'}}>🛡️ Active Add-ons</div>
+          {addonMsg && <div className="success-msg" style={{marginBottom:'8px',fontSize:'12px'}}>{addonMsg}</div>}
+          {addons.map(a => (
+            <div key={a.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid rgba(92,184,122,0.1)'}}>
+              <div>
+                <div style={{fontSize:'13px',fontWeight:600,color:'var(--text)'}}>{a.item_type === 'interest_shield' ? '🛡️ Interest Shield' : a.item_type}</div>
+                <div style={{fontSize:'11px',color:'var(--text-dim)'}}>Approved {ago(a.resolved_at||a.created_at)}</div>
+              </div>
+              <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{try{const r=await markAddonUsed(a.id);if(r?.error){setAddonMsg('❌ '+r.error);}else{setAddonMsg('✅ Marked as used');setAddons(addons.filter(x=>x.id!==a.id));}}catch(e){setAddonMsg('❌ '+e.message);}}}>Mark Used</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {st&&<div className="fee-box">
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -1152,6 +1173,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const [newPresetName, setNewPresetName] = useState('');
   const [showSavePreset, setShowSavePreset] = useState(false);
   const [sendSpinNotif, setSendSpinNotif] = useState(true);
+  const [debtorAddons, setDebtorAddons] = useState([]);
 
   const pr = profiles.find(p=>p.id===sid);
   const st = stips.find(s=>s.profile_id===sid);
