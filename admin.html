@@ -2384,6 +2384,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [assignType, setAssignType] = useState('admin_assigned');
   const [assigning, setAssigning] = useState(false);
   const [assignOk, setAssignOk] = useState('');
+  const [taskShield, setTaskShield] = useState(null);
 
   const pending = tasks.filter(t => t.status === 'submitted');
   const active = tasks.filter(t => t.status === 'active' || t.status === 'overdue');
@@ -2500,11 +2501,20 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
         <div>
           {assignOk && <div className="success-msg" style={{marginBottom:'12px'}}>{assignOk}</div>}
           <div className="form-group"><label className="form-label">Debtor</label>
-            <select className="fs" value={assignPid} onChange={e=>setAssignPid(e.target.value)}>
+            <select className="fs" value={assignPid} onChange={e=>{setAssignPid(e.target.value);setTaskShield(null);setErr('');if(e.target.value){getDebtorAddons(e.target.value).then(r=>{const ts=(r||[]).find(a=>a.item_type==='task_shield'&&a.shield_uses_remaining>0);setTaskShield(ts||null);}).catch(()=>setTaskShield(null));}}}>
               <option value="">Select debtor...</option>
               {profiles.map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode?'••••':p.display_name}</option>))}
             </select>
           </div>
+
+          {/* Task Shield Warning */}
+          {taskShield && (
+            <div style={{background:'rgba(92,184,122,0.08)',border:'2px solid rgba(92,184,122,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
+              <div style={{fontSize:'14px',fontWeight:700,color:'var(--green)',marginBottom:'8px'}}>🚫 This debtor has an active Task Shield!</div>
+              <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'12px'}}>{taskShield.shield_uses_remaining} use(s) remaining. You cannot assign a task while this shield is active. Mark it as used to proceed.</div>
+              <button className="btn btn-sm" style={{width:'100%'}} onClick={async()=>{try{const r=await markAddonUsed(taskShield.id);if(r?.error){setErr('❌ '+r.error);}else{setAssignOk('✅ Task Shield used ('+r.uses_remaining+' left). You can now assign a task.');setTaskShield(r.uses_remaining>0?{...taskShield,shield_uses_remaining:r.uses_remaining}:null);}}catch(e){setErr('❌ '+e.message);}}}>🚫 Mark Task Shield as Used</button>
+            </div>
+          )}
           <div className="form-group"><label className="form-label">Task Title</label><input className="fi" value={assignTitle} onChange={e=>setAssignTitle(e.target.value)} placeholder="e.g. Write 50 lines" /></div>
           <div className="form-group"><label className="form-label">Description (optional)</label><textarea className="ft" value={assignDesc} onChange={e=>setAssignDesc(e.target.value)} placeholder="Details about the task..." /></div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
