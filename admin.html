@@ -411,6 +411,9 @@ const getAllStips = () => sf('/rest/v1/stipulations?select=*');
 const getLeaderboard = () => sf('/rest/v1/rpc/get_leaderboard', { method: 'POST', body: '{}' });
 const triggerCelebration = () => sf('/rest/v1/rpc/admin_process_weekly_celebration', { method: 'POST', body: '{}' });
 const triggerRankUpdate = () => sf('/rest/v1/rpc/update_last_ranks', { method: 'POST', body: '{}' });
+const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,token_balance)&order=created_at.desc');
+const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
+const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
 const getPendingTx = () => sf('/rest/v1/pending_transactions?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,current_balance)&order=created_at.desc');
 
 const insertLedger = (e) => sf('/rest/v1/ledger', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
@@ -2306,6 +2309,131 @@ function Approvals({ pending, onDone, privacyMode }) {
 
 // ========== Admin Leaderboard ==========
 
+function ShopOrders({ orders, onDone, privacyMode }) {
+  const [reviewItem, setReviewItem] = useState(null);
+  const [adminNote, setAdminNote] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
+  const [showReject, setShowReject] = useState(false);
+  const [ld, setLd] = useState(false);
+  const [ok, setOk] = useState('');
+  const [err, setErr] = useState('');
+
+  const itemLabels = {
+    'lines': '📝 Lines (15T)',
+    'interest_shield': '🛡️ Interest Shield (40T)',
+    'custom_task': '🎯 Custom Task (100T)',
+    'reward_1st': '🏆 1st Place Reward (Free)',
+    'reward_2nd': '🥈 2nd Place Reward (Free)',
+    'reward_3rd': '🥉 3rd Place Reward (Free)'
+  };
+
+  const openReview = (item) => {
+    setReviewItem(item); setAdminNote(''); setRejectReason(''); setShowReject(false); setOk(''); setErr('');
+  };
+
+  const doApprove = async () => {
+    if (!reviewItem) return;
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await approveShopOrder(reviewItem.id, adminNote);
+      if (result && result.error) { setErr(result.error); setLd(false); return; }
+      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}`);
+      setReviewItem(null);
+      onDone?.();
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  const doReject = async () => {
+    if (!reviewItem) return;
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await rejectShopOrder(reviewItem.id, rejectReason);
+      if (result && result.error) { setErr(result.error); setLd(false); return; }
+      setOk(`❌ ${result.item} rejected for ${result.debtor}. No tokens deducted.`);
+      setReviewItem(null);
+      onDone?.();
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  return (
+    <div className="page">
+      <div className="page-title">🛒 Shop Orders ({orders.length})</div>
+      {ok && <div className="success-msg" style={{marginBottom:'16px'}}>{ok}</div>}
+      {err && <div className="error-msg" style={{marginBottom:'16px'}}>{err}</div>}
+      {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
+
+      {reviewItem && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'20px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+            <div>
+              <div style={{fontSize:'16px',fontWeight:600,color:'var(--gold)'}}>{privacyMode ? reviewItem.profiles?.debtor_number : reviewItem.profiles?.display_name}</div>
+              <div style={{fontSize:'12px',color:'var(--text-dim)'}}>{reviewItem.profiles?.debtor_number}{!privacyMode && reviewItem.profiles?.username && <span style={{fontStyle:'italic'}}> — @{reviewItem.profiles.username}</span>}</div>
+            </div>
+            <button className="btn btn-sm btn-outline" onClick={()=>setReviewItem(null)}>✕ Close</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}}>
+            <div className="di"><div className="di-label">Item</div><div className="di-value">{itemLabels[reviewItem.item_type] || reviewItem.item_type}</div></div>
+            <div className="di"><div className="di-label">Token Cost</div><div className="di-value">{reviewItem.token_cost > 0 ? reviewItem.token_cost + 'T' : 'Free'}</div></div>
+            <div className="di"><div className="di-label">Their Tokens</div><div className="di-value">🪙 {reviewItem.profiles?.token_balance || 0}</div></div>
+            <div className="di"><div className="di-label">Submitted</div><div className="di-value">{ago(reviewItem.created_at)}</div></div>
+          </div>
+          {reviewItem.debtor_note && (<div style={{background:'var(--bg-input)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',padding:'10px 14px',marginBottom:'16px',fontSize:'13px',color:'var(--text-dim)'}}><span style={{color:'var(--gold)',fontSize:'11px',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px'}}>Debtor's Note:</span><br/>{reviewItem.debtor_note}</div>)}
+
+          {!showReject ? (
+            <div>
+              <div className="form-group">
+                <label className="form-label">Admin Note (optional)</label>
+                <input className="fi" type="text" value={adminNote} onChange={e=>setAdminNote(e.target.value)} placeholder="e.g. 50 lines assigned, due Friday..." />
+              </div>
+              {reviewItem.token_cost > 0 && (
+                <div className="preview-box" style={{marginBottom:'16px'}}>
+                  <div className="preview-title">Token Preview</div>
+                  <div className="preview-row"><span>Current Tokens</span><span>🪙 {reviewItem.profiles?.token_balance || 0}</span></div>
+                  <div className="preview-row"><span>Cost</span><span style={{color:'var(--red)'}}>-{reviewItem.token_cost}</span></div>
+                  <div className="preview-row total"><span>After Purchase</span><span>🪙 {(reviewItem.profiles?.token_balance || 0) - reviewItem.token_cost}</span></div>
+                </div>
+              )}
+              <div style={{display:'flex',gap:'8px'}}>
+                <button className="btn" onClick={doApprove} disabled={ld} style={{flex:1}}>{ld ? <span className="spinner"/> : '✅ Approve'}</button>
+                <button className="btn btn-danger" onClick={()=>setShowReject(true)} disabled={ld} style={{flex:1}}>❌ Reject</button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{fontSize:'12px',fontWeight:600,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'10px'}}>Reject this order</div>
+              <div className="form-group">
+                <label className="form-label">Reason (debtor will see this)</label>
+                <textarea className="ft" value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="e.g. Not eligible, insufficient activity..." />
+              </div>
+              <div style={{display:'flex',gap:'8px'}}>
+                <button className="btn btn-danger" onClick={doReject} disabled={ld} style={{flex:1}}>{ld ? <span className="spinner"/> : '❌ Confirm Reject'}</button>
+                <button className="btn btn-outline" onClick={()=>setShowReject(false)} disabled={ld} style={{flex:1}}>← Back</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!reviewItem && orders.length > 0 && (
+        <div className="feed-list">
+          {orders.map(o => (
+            <div className="feed-item" key={o.id} onClick={()=>openReview(o)} style={{cursor:'pointer'}}>
+              <div className="feed-icon fi-tok">🛒</div>
+              <div className="feed-body">
+                <div className="feed-text"><strong>{o.profiles?.debtor_number} {privacyMode ? '••••' : o.profiles?.display_name}</strong>{' — '}{itemLabels[o.item_type] || o.item_type}</div>
+                <div className="feed-time">{ago(o.created_at)}{o.debtor_note && <span style={{color:'var(--text-dim)'}}> · "{o.debtor_note}"</span>}</div>
+              </div>
+              <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRefresh }) {
   const [processing, setProcessing] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -2418,6 +2546,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   const [alerts, setAlerts] = useState([]);
   const [pendingTx, setPendingTx] = useState([]);
   const [lbData, setLbData] = useState([]);
+  const [shopOrders, setShopOrders] = useState([]);
   const [alertPrefs, setAlertPrefs] = useState({ show_overdue_alerts: true, show_fine_review_alerts: true, show_high_balance_alerts: true, dismissed_alerts: [] });
  
   // Load alert prefs from Supabase
@@ -2459,8 +2588,9 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   const load = useCallback(async () => {
     setDl(true);
     try {
-      const [p, a, s, pt, lb] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips(), getPendingTx(), getLeaderboard().catch(()=>[])]);
+      const [p, a, s, pt, lb, so] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips(), getPendingTx(), getLeaderboard().catch(()=>[]), getShopOrders().catch(()=>[])]);
       setLbData(lb||[]);
+      setShopOrders(so||[]);
       setProfs(p||[]);
       setAct(a||[]);
       setStips(s||[]);
@@ -2508,6 +2638,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
+        {pg==='shop-orders'&&<ShopOrders orders={shopOrders} onDone={load} privacyMode={privacyMode} />}
         {pg==='activity'&&<div className="page"><div className="page-title">Activity Feed</div><Feed items={act} onTap={vd} limit={100} privacyMode={privacyMode} /></div>}
         {pg==='settings'&&<Settings onLogout={lo} />}
         {pg==='guide'&&<Guide />}
@@ -2525,6 +2656,10 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         <button className={`nav-item ${pg==='approvals'?'active':''}`} onClick={()=>setPg('approvals')} style={{position:'relative'}}>
           <span className="nav-icon">📥</span><span className="nav-label">Approvals</span>
           {pendingTx.length>0&&<span className="badge">{pendingTx.length}</span>}
+        </button>
+        <button className={`nav-item ${pg==='shop-orders'?'active':''}`} onClick={()=>setPg('shop-orders')} style={{position:'relative'}}>
+          <span className="nav-icon">🛒</span><span className="nav-label">Shop</span>
+          {shopOrders.length>0&&<span className="badge">{shopOrders.length}</span>}
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
