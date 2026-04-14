@@ -933,64 +933,89 @@ body {
         <div class="codex-sub">Spend wisely. The Empress decides.</div>
       </div>
 
+      <!-- Token balance display -->
+      <div class="token-bar" style="margin-bottom:1.25rem;">
+        <div class="token-left">
+          <div class="token-icon">T</div>
+          <span>Your tokens</span>
+        </div>
+        <div class="token-count" id="shopTokenBalance">—</div>
+      </div>
+
       <div class="shop-subnav">
         <button class="shop-subnav-btn active" data-shop="rewards" onclick="switchShop(this,'rewards')">🏆 Rewards</button>
         <button class="shop-subnav-btn" data-shop="tasks" onclick="switchShop(this,'tasks')">📝 Tasks</button>
         <button class="shop-subnav-btn" data-shop="addons" onclick="switchShop(this,'addons')">🛡️ Add-ons</button>
+        <button class="shop-subnav-btn" data-shop="orders" onclick="switchShop(this,'orders')">📋 Orders</button>
       </div>
 
       <!-- REWARDS SUB-PAGE -->
       <div class="shop-section active" id="shop-rewards">
-        <div id="rewardsContent">
-          <div class="reward-card reward-locked" id="reward1st">
-            <div class="reward-rank">🏆 1st Place Rewards</div>
-            <div class="reward-body">
-              The top spender of the week earns exclusive rewards chosen by the Empress. DM the Empress to claim your prize.
-            </div>
+        <div class="reward-card" id="reward1st" style="opacity:0.5;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="reward-rank">🏆 1st Place Reward</div>
+            <button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" id="claimBtn1st" onclick="placeShopOrder('reward_1st')" disabled>Claim</button>
           </div>
-          <div class="reward-card reward-locked" id="reward2nd">
-            <div class="reward-rank">🥈 2nd Place Rewards</div>
-            <div class="reward-body">
-              Runner-up rewards — a worthy consolation for your devotion. DM the Empress to claim your prize.
-            </div>
-          </div>
-          <div class="reward-card reward-locked" id="reward3rd">
-            <div class="reward-rank">🥉 3rd Place Rewards</div>
-            <div class="reward-body">
-              Bronze-tier rewards for making the podium. DM the Empress to claim your prize.
-            </div>
-          </div>
+          <div class="reward-body" style="margin-top:8px;">Exclusive reward chosen by the Empress for the top spender of the week. Free to claim if you placed 1st.</div>
         </div>
-        <div class="codex-warn" style="margin-top:12px;">
-          Rewards refresh each Sunday. Only the top 3 spenders of the previous week can claim. Results are final.
+        <div class="reward-card" id="reward2nd" style="opacity:0.5;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="reward-rank">🥈 2nd Place Reward</div>
+            <button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" id="claimBtn2nd" onclick="placeShopOrder('reward_2nd')" disabled>Claim</button>
+          </div>
+          <div class="reward-body" style="margin-top:8px;">Runner-up reward for your devotion. Free to claim if you placed 2nd.</div>
         </div>
+        <div class="reward-card" id="reward3rd" style="opacity:0.5;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="reward-rank">🥉 3rd Place Reward</div>
+            <button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" id="claimBtn3rd" onclick="placeShopOrder('reward_3rd')" disabled>Claim</button>
+          </div>
+          <div class="reward-body" style="margin-top:8px;">Bronze-tier reward for making the podium. Free to claim if you placed 3rd.</div>
+        </div>
+        <div class="codex-warn" style="margin-top:12px;">Rewards refresh each Sunday. Only the top 3 spenders can claim. Claims require Empress approval.</div>
       </div>
 
       <!-- TASKS SUB-PAGE -->
       <div class="shop-section" id="shop-tasks">
         <div class="reward-card">
-          <div class="reward-rank">📝 Lines — 15 tokens</div>
-          <div class="reward-body">Purchase a set of lines to write. The number of lines is determined by the Empress. Failure to complete them on time will result in fines.</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="reward-rank">📝 Lines — 15 tokens</div>
+            <button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder('lines')">Purchase</button>
+          </div>
+          <div class="reward-body" style="margin-top:8px;">Purchase a set of lines to write. The number of lines is determined by the Empress. Failure to complete them on time will result in fines.</div>
         </div>
         <div class="reward-card">
-          <div class="reward-rank">🎯 Custom Task — 100 tokens</div>
-          <div class="reward-body">Request a personalised assignment from the Empress. The nature and difficulty of the task is at her sole discretion. Completion is mandatory once assigned.</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="reward-rank">🎯 Custom Task — 100 tokens</div>
+            <button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder('custom_task')">Purchase</button>
+          </div>
+          <div class="reward-body" style="margin-top:8px;">Request a personalised assignment from the Empress. The nature and difficulty of the task is at her sole discretion. Completion is mandatory once assigned.</div>
         </div>
-        <div class="codex-warn" style="margin-top:12px;">
-          All purchases are final. DM the Empress to initiate a purchase. Token shop items cannot be refunded, exchanged, or transferred.
-        </div>
+        <div class="codex-warn" style="margin-top:12px;">Tokens are deducted only after the Empress approves your purchase. All purchases are final.</div>
       </div>
 
       <!-- ADD-ONS SUB-PAGE -->
       <div class="shop-section" id="shop-addons">
         <div class="reward-card">
-          <div class="reward-rank">🛡️ Interest Shield — 40 tokens</div>
-          <div class="reward-body">Block one upcoming scheduled interest wheel spin. Must be purchased before the spin is triggered. Single use. Does not carry over.</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="reward-rank">🛡️ Interest Shield — 40 tokens</div>
+            <button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder('interest_shield')">Purchase</button>
+          </div>
+          <div class="reward-body" style="margin-top:8px;">Block one upcoming scheduled interest wheel spin. Must be purchased before the spin is triggered. Single use. Does not carry over.</div>
         </div>
-        <div class="codex-warn" style="margin-top:12px;">
-          Add-ons take effect immediately upon purchase. DM the Empress to purchase. No refunds.
+        <div class="codex-warn" style="margin-top:12px;">Tokens are deducted only after the Empress approves. No refunds.</div>
+      </div>
+
+      <!-- ORDERS SUB-PAGE -->
+      <div class="shop-section" id="shop-orders">
+        <div class="section-title" style="margin-top:0;">Your orders</div>
+        <div id="shopOrdersList">
+          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
         </div>
       </div>
+
+      <!-- Shop status message -->
+      <div id="shopMessage" style="display:none;margin-top:12px;"></div>
     </div>
 
     <!-- ========== WHEEL TAB ========== -->
@@ -1283,7 +1308,7 @@ async function loadApp(user) {
   document.getElementById('userDisplayName').textContent = code || name;
   document.getElementById('userAvatar').textContent = code ? code.replace(/\D/g, '') : name.charAt(0).toUpperCase();
 
-  await Promise.all([loadLedger(), loadTokens(), loadStipulations(), loadSubmissions(), loadNotifications(), loadLeaderboard()]);
+  await Promise.all([loadLedger(), loadTokens(), loadStipulations(), loadSubmissions(), loadNotifications(), loadLeaderboard(), loadShopOrders()]);
   renderProfile();
   renderInfo();
   renderStipulations();
@@ -1408,6 +1433,7 @@ function renderProfile() {
   renderLedger('all');
 
   // Check reward unlock for shop
+  updateShopTokens();
   updateRewardAccess();
 }
 
@@ -1465,21 +1491,111 @@ function renderTokenTable() {
 }
 
 // ===== SHOP: REWARD ACCESS =====
+// ===== SHOP ORDERS =====
+var shopOrdersData = [];
+
+async function loadShopOrders() {
+  if (!currentProfile) return;
+  try {
+    var result = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).order('created_at', { ascending: false });
+    shopOrdersData = result.error ? [] : (result.data || []);
+    renderShopOrders();
+  } catch(e) {
+    shopOrdersData = [];
+    renderShopOrders();
+  }
+}
+
+function renderShopOrders() {
+  var el = document.getElementById('shopOrdersList');
+  if (!el) return;
+  if (shopOrdersData.length === 0) {
+    el.innerHTML = '<div class="empty-state">No orders yet. Purchase something from the shop!</div>';
+    return;
+  }
+  var itemLabels = {
+    'lines': '📝 Lines',
+    'interest_shield': '🛡️ Interest Shield',
+    'custom_task': '🎯 Custom Task',
+    'reward_1st': '🏆 1st Place Reward',
+    'reward_2nd': '🥈 2nd Place Reward',
+    'reward_3rd': '🥉 3rd Place Reward'
+  };
+  var html = '';
+  shopOrdersData.forEach(function(order) {
+    var statusClass = 'status-' + order.status;
+    var statusLabel = order.status.charAt(0).toUpperCase() + order.status.slice(1);
+    var label = itemLabels[order.item_type] || order.item_type;
+    var dateStr = formatTimeAgo(new Date(order.created_at));
+    html += '<div class="submission-card">';
+    html += '<div class="sub-top">';
+    html += '<span style="font-size:14px;font-weight:500;">' + label + '</span>';
+    html += '<span class="status-badge ' + statusClass + '">' + statusLabel + '</span>';
+    html += '</div>';
+    html += '<div class="sub-detail">';
+    if (order.token_cost > 0) html += 'Cost: ' + order.token_cost + ' tokens';
+    else html += 'Free claim';
+    html += ' \u00B7 ' + dateStr;
+    if (order.debtor_note) html += '<br>Your note: ' + order.debtor_note;
+    html += '</div>';
+    if (order.status === 'rejected' && order.admin_note) {
+      html += '<div class="sub-admin-note">Reason: ' + order.admin_note + '</div>';
+    }
+    if (order.status === 'approved' && order.admin_note) {
+      html += '<div class="sub-detail" style="margin-top:6px;color:var(--te-green);font-style:italic;">Note: ' + order.admin_note + '</div>';
+    }
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+async function placeShopOrder(itemType) {
+  var msgEl = document.getElementById('shopMessage');
+  msgEl.style.display = 'block';
+  msgEl.className = '';
+  msgEl.innerHTML = '<div class="loading-spinner" style="padding:0.5rem;"><div class="spinner"></div>Submitting...</div>';
+  try {
+    var result = await sb.rpc('place_shop_order', { p_item_type: itemType, p_note: null });
+    if (result.error) throw result.error;
+    var data = result.data;
+    if (data.error) {
+      msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">' + data.error + '</div>';
+    } else {
+      msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-green);color:var(--te-green);">\u2705 ' + data.message + '</div>';
+      await loadShopOrders();
+    }
+    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
+  } catch(e) {
+    msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">Error: ' + (e.message || 'Unknown error') + '</div>';
+    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
+  }
+}
+
+function updateShopTokens() {
+  var el = document.getElementById('shopTokenBalance');
+  if (el && currentProfile) {
+    el.textContent = (currentProfile.token_balance || 0).toLocaleString();
+  }
+}
+
 function updateRewardAccess() {
-  // Check if current debtor placed top 3 this week
   var myId = currentProfile ? currentProfile.id : null;
   var myRank = 999;
   leaderboardData.forEach(function(row) {
     if (row.profile_id === myId) myRank = row.rank_position;
   });
-
+  var btn1 = document.getElementById('claimBtn1st');
+  var btn2 = document.getElementById('claimBtn2nd');
+  var btn3 = document.getElementById('claimBtn3rd');
   var r1 = document.getElementById('reward1st');
   var r2 = document.getElementById('reward2nd');
   var r3 = document.getElementById('reward3rd');
-
-  if (r1) r1.className = 'reward-card' + (myRank === 1 ? '' : ' reward-locked');
-  if (r2) r2.className = 'reward-card' + (myRank === 2 ? '' : ' reward-locked');
-  if (r3) r3.className = 'reward-card' + (myRank === 3 ? '' : ' reward-locked');
+  if (btn1) btn1.disabled = myRank !== 1;
+  if (btn2) btn2.disabled = myRank !== 2;
+  if (btn3) btn3.disabled = myRank !== 3;
+  if (r1) r1.style.opacity = myRank === 1 ? '1' : '0.5';
+  if (r2) r2.style.opacity = myRank === 2 ? '1' : '0.5';
+  if (r3) r3.style.opacity = myRank === 3 ? '1' : '0.5';
 }
 
 // ===== INFO =====
