@@ -414,7 +414,7 @@ const triggerRankUpdate = () => sf('/rest/v1/rpc/update_last_ranks', { method: '
 const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,token_balance)&order=created_at.desc');
 const getAllShopOrders = () => sf('/rest/v1/shop_orders?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=100');
 const markAddonUsed = (id) => sf('/rest/v1/rpc/admin_mark_addon_used', { method: 'POST', body: JSON.stringify({ p_order_id: id }) });
-const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&select=*&order=created_at.desc');
+const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&item_type=in.(interest_shield)&select=*&order=created_at.desc');
 const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
 const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
 const getAllTasks = () => sf('/rest/v1/tasks?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=200');
@@ -1352,7 +1352,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
     <div className="page">
       <div className="page-title">Add Transaction</div>
       <div className="form-group"><label className="form-label">Debtor</label>
-        <select className="fs" value={sid} onChange={e=>{setSid(e.target.value);setOk('');setShowWheel(false);}}>
+        <select className="fs" value={sid} onChange={e=>{setSid(e.target.value);setOk('');setShowWheel(false);if(e.target.value){getDebtorAddons(e.target.value).then(r=>setDebtorAddons(r||[])).catch(()=>setDebtorAddons([]));}else{setDebtorAddons([]);}}}>
           <option value="">Select debtor...</option>
           {profiles.map(p=>{const un=p.username?` @${p.username}`:'';return(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name}{privacyMode?'':un} ({fmt(p.current_balance)})</option>);})}
         </select>
@@ -1398,6 +1398,14 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
 
       {isInt ? (
         <div>
+          {/* Interest Shield Warning */}
+          {debtorAddons.length > 0 && (
+            <div style={{background:'rgba(92,184,122,0.08)',border:'2px solid rgba(92,184,122,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
+              <div style={{fontSize:'14px',fontWeight:700,color:'var(--green)',marginBottom:'8px'}}>🛡️ This debtor has an active Interest Shield!</div>
+              <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'12px'}}>They purchased a shield to block one interest spin. You should mark it as used instead of applying interest — unless the shield doesn't apply to this specific spin.</div>
+              <button className="btn btn-sm" style={{width:'100%'}} onClick={async()=>{try{const r=await markAddonUsed(debtorAddons[0].id);if(r?.error){alert('Error: '+r.error);}else{alert('✅ Shield marked as used. Debtor notified.');setDebtorAddons(debtorAddons.slice(1));}}catch(e){alert('Error: '+e.message);}}}>🛡️ Mark Shield as Used & Skip Interest</button>
+            </div>
+          )}
           <div className="form-group"><label className="form-label">Interest %</label>
             <input className="fi" type="number" inputMode="decimal" placeholder="e.g. 25" value={pct} onChange={e=>setPct(e.target.value)} />
             {pr&&pct&&<div className="form-hint">{pct}% of {fmt(bal)} = {fmt(ca)}</div>}
