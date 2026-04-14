@@ -412,8 +412,15 @@ const getLeaderboard = () => sf('/rest/v1/rpc/get_leaderboard', { method: 'POST'
 const triggerCelebration = () => sf('/rest/v1/rpc/admin_process_weekly_celebration', { method: 'POST', body: '{}' });
 const triggerRankUpdate = () => sf('/rest/v1/rpc/update_last_ranks', { method: 'POST', body: '{}' });
 const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,token_balance)&order=created_at.desc');
+const getAllShopOrders = () => sf('/rest/v1/shop_orders?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=100');
 const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
 const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
+const getAllTasks = () => sf('/rest/v1/tasks?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=200');
+const getPendingTasks = () => sf('/rest/v1/tasks?status=eq.submitted&select=*,profiles!inner(display_name,debtor_number,username)&order=submitted_at.desc');
+const getShopItems = () => sf('/rest/v1/shop_items?select=*&order=category.asc,sort_order.asc');
+const assignTask = (pid, title, desc, due, type) => sf('/rest/v1/rpc/admin_assign_task', { method: 'POST', body: JSON.stringify({ p_profile_id: pid, p_title: title, p_description: desc || null, p_due_date: due || null, p_task_type: type || 'admin_assigned' }) });
+const acceptTask = (id, note) => sf('/rest/v1/rpc/admin_accept_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_note: note || null }) });
+const fineTask = (id, amount, note) => sf('/rest/v1/rpc/admin_fine_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_fine_amount: amount, p_note: note || null }) });
 const getPendingTx = () => sf('/rest/v1/pending_transactions?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,current_balance)&order=created_at.desc');
 
 const insertLedger = (e) => sf('/rest/v1/ledger', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
@@ -2309,6 +2316,286 @@ function Approvals({ pending, onDone, privacyMode }) {
 
 // ========== Admin Leaderboard ==========
 
+// ========== TASK MANAGER ==========
+function TaskManager({ tasks, profiles, onDone, privacyMode }) {
+  const [tab, setTab] = useState('pending');
+  const [reviewItem, setReviewItem] = useState(null);
+  const [fineAmt, setFineAmt] = useState('');
+  const [fineNote, setFineNote] = useState('');
+  const [acceptNote, setAcceptNote] = useState('');
+  const [ld, setLd] = useState(false);
+  const [ok, setOk] = useState('');
+  const [err, setErr] = useState('');
+
+  // Assign task form
+  const [assignPid, setAssignPid] = useState('');
+  const [assignTitle, setAssignTitle] = useState('');
+  const [assignDesc, setAssignDesc] = useState('');
+  const [assignDue, setAssignDue] = useState('');
+  const [assignType, setAssignType] = useState('admin_assigned');
+  const [assigning, setAssigning] = useState(false);
+  const [assignOk, setAssignOk] = useState('');
+
+  const pending = tasks.filter(t => t.status === 'submitted');
+  const active = tasks.filter(t => t.status === 'active' || t.status === 'overdue');
+  const history = tasks.filter(t => t.status === 'accepted' || t.status === 'fined');
+
+  const doAccept = async () => {
+    if (!reviewItem) return;
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await acceptTask(reviewItem.id, acceptNote);
+      if (result?.error) { setErr(result.error); } else { setOk('✅ Task accepted for ' + (result?.debtor || '')); setReviewItem(null); onDone?.(); }
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  const doFine = async () => {
+    if (!reviewItem || !fineAmt) return;
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await fineTask(reviewItem.id, parseFloat(fineAmt), fineNote);
+      if (result?.error) { setErr(result.error); } else { setOk('⚠️ Fined ' + fmt(result.fine_amount) + ' — ' + (result?.debtor || '')); setReviewItem(null); onDone?.(); }
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  const doAssign = async () => {
+    if (!assignPid || !assignTitle) { setErr('Select a debtor and enter a title'); return; }
+    setAssigning(true); setErr(''); setAssignOk('');
+    try {
+      const dueDate = assignDue ? new Date(assignDue).toISOString() : null;
+      const result = await assignTask(assignPid, assignTitle, assignDesc, dueDate, assignType);
+      if (result?.error) { setErr(result.error); } else {
+        setAssignOk('✅ Task assigned to ' + (result?.debtor || ''));
+        setAssignTitle(''); setAssignDesc(''); setAssignDue(''); onDone?.();
+      }
+    } catch(e) { setErr('Error: ' + e.message); }
+    setAssigning(false);
+  };
+
+  return (
+    <div className="page">
+      <div className="page-title">📋 Task Manager</div>
+
+      <div className="tabs">
+        <button className={`tab ${tab==='pending'?'active':''}`} onClick={()=>setTab('pending')}>Submitted ({pending.length})</button>
+        <button className={`tab ${tab==='active'?'active':''}`} onClick={()=>setTab('active')}>Active ({active.length})</button>
+        <button className={`tab ${tab==='assign'?'active':''}`} onClick={()=>setTab('assign')}>Assign</button>
+        <button className={`tab ${tab==='history'?'active':''}`} onClick={()=>setTab('history')}>History</button>
+      </div>
+
+      {ok && <div className="success-msg" style={{marginBottom:'12px'}}>{ok}</div>}
+      {err && <div className="error-msg" style={{marginBottom:'12px'}}>{err}</div>}
+
+      {tab === 'pending' && !reviewItem && (
+        pending.length === 0 ? <div className="empty-state">No submitted tasks to review</div> :
+        <div className="feed-list">{pending.map(t => (
+          <div className="feed-item" key={t.id} onClick={()=>{setReviewItem(t);setOk('');setErr('');setFineAmt('');setFineNote('');setAcceptNote('');}} style={{cursor:'pointer'}}>
+            <div className="feed-icon fi-tok">📋</div>
+            <div className="feed-body">
+              <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
+              <div className="feed-time">Submitted {ago(t.submitted_at||t.created_at)}{t.due_date && ` · Due: ${fmtD(t.due_date)}`}</div>
+            </div>
+            <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
+          </div>
+        ))}</div>
+      )}
+
+      {tab === 'pending' && reviewItem && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'16px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+            <div style={{fontSize:'16px',fontWeight:600,color:'var(--gold)'}}>{reviewItem.title}</div>
+            <button className="btn btn-sm btn-outline" onClick={()=>setReviewItem(null)}>✕</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px'}}>
+            <div className="di"><div className="di-label">Debtor</div><div className="di-value">{reviewItem.profiles?.debtor_number} {privacyMode?'':reviewItem.profiles?.display_name}</div></div>
+            <div className="di"><div className="di-label">Type</div><div className="di-value">{reviewItem.task_type}</div></div>
+            <div className="di"><div className="di-label">Due</div><div className="di-value">{reviewItem.due_date?fmtD(reviewItem.due_date):'No deadline'}</div></div>
+            <div className="di"><div className="di-label">Submitted</div><div className="di-value">{ago(reviewItem.submitted_at||reviewItem.created_at)}</div></div>
+          </div>
+          {reviewItem.description && <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px',padding:'10px',background:'var(--bg-input)',borderRadius:'var(--radius-sm)',border:'1px solid var(--border)'}}>{reviewItem.description}</div>}
+
+          <div className="form-group"><label className="form-label">Accept Note (optional)</label><input className="fi" value={acceptNote} onChange={e=>setAcceptNote(e.target.value)} placeholder="Good work..." /></div>
+          <button className="btn" onClick={doAccept} disabled={ld} style={{width:'100%',marginBottom:'12px'}}>{ld?<span className="spinner"/>:'✅ Accept Task'}</button>
+
+          <div style={{borderTop:'1px solid var(--border)',paddingTop:'12px',marginTop:'4px'}}>
+            <div style={{fontSize:'12px',fontWeight:600,color:'var(--red)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'8px'}}>Or issue a fine</div>
+            <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}>
+              <input className="fi" type="number" inputMode="decimal" placeholder="Fine amount (£)" value={fineAmt} onChange={e=>setFineAmt(e.target.value)} style={{flex:1}} />
+              <input className="fi" placeholder="Reason..." value={fineNote} onChange={e=>setFineNote(e.target.value)} style={{flex:2}} />
+            </div>
+            <button className="btn btn-danger" onClick={doFine} disabled={ld||!fineAmt} style={{width:'100%'}}>{ld?<span className="spinner"/>:'⚠️ Fine Debtor'}</button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'active' && (
+        active.length === 0 ? <div className="empty-state">No active tasks</div> :
+        <div className="feed-list">{active.map(t => {
+          const due = t.due_date ? new Date(t.due_date) : null;
+          const isOverdue = due && due < new Date();
+          return (
+            <div className="feed-item" key={t.id} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px'}}>
+              <div className="feed-icon" style={{background:isOverdue?'rgba(231,76,60,0.15)':'rgba(201,168,76,0.15)'}}>{isOverdue?'🚨':'📋'}</div>
+              <div className="feed-body">
+                <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
+                <div className="feed-time">{due ? (isOverdue?'OVERDUE — was due ':'Due: ')+fmtD(t.due_date) : 'No deadline'} · Assigned {ago(t.created_at)}</div>
+              </div>
+            </div>
+          );
+        })}</div>
+      )}
+
+      {tab === 'assign' && (
+        <div>
+          {assignOk && <div className="success-msg" style={{marginBottom:'12px'}}>{assignOk}</div>}
+          <div className="form-group"><label className="form-label">Debtor</label>
+            <select className="fs" value={assignPid} onChange={e=>setAssignPid(e.target.value)}>
+              <option value="">Select debtor...</option>
+              {profiles.map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode?'••••':p.display_name}</option>))}
+            </select>
+          </div>
+          <div className="form-group"><label className="form-label">Task Title</label><input className="fi" value={assignTitle} onChange={e=>setAssignTitle(e.target.value)} placeholder="e.g. Write 50 lines" /></div>
+          <div className="form-group"><label className="form-label">Description (optional)</label><textarea className="ft" value={assignDesc} onChange={e=>setAssignDesc(e.target.value)} placeholder="Details about the task..." /></div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Due Date</label><input className="fi" type="datetime-local" value={assignDue} onChange={e=>setAssignDue(e.target.value)} /></div>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Type</label>
+              <select className="fs" value={assignType} onChange={e=>setAssignType(e.target.value)}>
+                <option value="admin_assigned">Admin Assigned</option>
+                <option value="lines">Lines</option>
+                <option value="custom_task">Custom Task</option>
+              </select>
+            </div>
+          </div>
+          <button className="btn" onClick={doAssign} disabled={assigning} style={{width:'100%',marginTop:'16px'}}>{assigning?<span className="spinner"/>:'📋 Assign Task'}</button>
+        </div>
+      )}
+
+      {tab === 'history' && (
+        history.length === 0 ? <div className="empty-state">No completed tasks yet</div> :
+        <div className="feed-list">{history.map(t => (
+          <div className="feed-item" key={t.id}>
+            <div className="feed-icon" style={{background:t.status==='accepted'?'rgba(76,175,80,0.15)':'rgba(231,76,60,0.15)'}}>{t.status==='accepted'?'✅':'⚠️'}</div>
+            <div className="feed-body">
+              <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
+              <div className="feed-time">{t.status==='accepted'?'Accepted':'Fined '+fmt(t.fine_amount)} · {ago(t.resolved_at||t.created_at)}{t.fine_note?' · '+t.fine_note:''}</div>
+            </div>
+          </div>
+        ))}</div>
+      )}
+    </div>
+  );
+}
+
+// ========== SHOP ITEM MANAGER ==========
+function ShopItemManager({ items, onDone }) {
+  const [editing, setEditing] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [cost, setCost] = useState('0');
+  const [category, setCategory] = useState('tasks');
+  const [icon, setIcon] = useState('📦');
+  const [itemKey, setItemKey] = useState('');
+  const [reqRank, setReqRank] = useState('');
+  const [ld, setLd] = useState(false);
+  const [ok, setOk] = useState('');
+  const [err, setErr] = useState('');
+
+  const startEdit = (item) => {
+    setEditing(item); setAdding(false);
+    setName(item.name); setDesc(item.description||''); setCost(String(item.token_cost));
+    setCategory(item.category); setIcon(item.icon||'📦'); setItemKey(item.item_key);
+    setReqRank(item.requires_rank ? String(item.requires_rank) : '');
+    setOk(''); setErr('');
+  };
+
+  const startAdd = () => {
+    setEditing(null); setAdding(true);
+    setName(''); setDesc(''); setCost('0'); setCategory('tasks'); setIcon('📦'); setItemKey(''); setReqRank('');
+    setOk(''); setErr('');
+  };
+
+  const doSave = async () => {
+    if (!name.trim() || !itemKey.trim()) { setErr('Name and item key are required'); return; }
+    setLd(true); setErr(''); setOk('');
+    try {
+      const payload = { name: name.trim(), description: desc.trim()||null, token_cost: parseInt(cost)||0, category, icon: icon||'📦', item_key: itemKey.trim(), requires_rank: reqRank ? parseInt(reqRank) : null, is_active: true };
+      if (editing) {
+        await sf(`/rest/v1/shop_items?id=eq.${editing.id}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(payload) });
+        setOk('✅ Item updated');
+      } else {
+        payload.sort_order = items.length + 1;
+        await sf('/rest/v1/shop_items', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(payload) });
+        setOk('✅ Item added');
+      }
+      setEditing(null); setAdding(false); onDone?.();
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  const doDelete = async (item) => {
+    if (!confirm('Delete "' + item.name + '"? This cannot be undone.')) return;
+    try {
+      await sf(`/rest/v1/shop_items?id=eq.${item.id}`, { method: 'DELETE' });
+      onDone?.();
+    } catch(e) { setErr('Error: ' + e.message); }
+  };
+
+  const grouped = { rewards: items.filter(i=>i.category==='rewards'), tasks: items.filter(i=>i.category==='tasks'), addons: items.filter(i=>i.category==='addons') };
+
+  return (
+    <div className="page">
+      <div className="page-title">🏪 Manage Shop Items</div>
+      {ok && <div className="success-msg" style={{marginBottom:'12px'}}>{ok}</div>}
+      {err && <div className="error-msg" style={{marginBottom:'12px'}}>{err}</div>}
+
+      {(editing || adding) && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'16px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+            <div style={{fontSize:'14px',fontWeight:600,color:'var(--gold)'}}>{editing?'Edit Item':'Add New Item'}</div>
+            <button className="btn btn-sm btn-outline" onClick={()=>{setEditing(null);setAdding(false);}}>✕</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Name</label><input className="fi" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Lines" /></div>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Item Key (unique)</label><input className="fi" value={itemKey} onChange={e=>setItemKey(e.target.value)} placeholder="e.g. lines" disabled={!!editing} /></div>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Category</label>
+              <select className="fs" value={category} onChange={e=>setCategory(e.target.value)}><option value="tasks">Tasks</option><option value="rewards">Rewards</option><option value="addons">Add-ons</option></select>
+            </div>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Token Cost</label><input className="fi" type="number" value={cost} onChange={e=>setCost(e.target.value)} /></div>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Icon (emoji)</label><input className="fi" value={icon} onChange={e=>setIcon(e.target.value)} placeholder="📦" /></div>
+            <div className="form-group" style={{margin:0}}><label className="form-label">Requires Rank (rewards only)</label><input className="fi" type="number" value={reqRank} onChange={e=>setReqRank(e.target.value)} placeholder="1, 2, or 3" /></div>
+          </div>
+          <div className="form-group"><label className="form-label">Description</label><textarea className="ft" value={desc} onChange={e=>setDesc(e.target.value)} /></div>
+          <button className="btn" onClick={doSave} disabled={ld} style={{width:'100%'}}>{ld?<span className="spinner"/>:(editing?'Save Changes':'Add Item')}</button>
+        </div>
+      )}
+
+      <button className="btn btn-outline btn-sm" onClick={startAdd} style={{width:'100%',marginBottom:'16px'}}>+ Add New Shop Item</button>
+
+      {['rewards','tasks','addons'].map(cat => (
+        <div key={cat} style={{marginBottom:'16px'}}>
+          <div className="section-title">{cat==='rewards'?'🏆 Rewards':cat==='tasks'?'📝 Tasks':'🛡️ Add-ons'} ({grouped[cat].length})</div>
+          {grouped[cat].length===0?<div style={{fontSize:'13px',color:'var(--text-muted)',padding:'8px 0'}}>No items</div>:
+          grouped[cat].map(item => (
+            <div key={item.id} style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',padding:'12px 14px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:'14px',fontWeight:600}}>{item.icon} {item.name} {item.token_cost>0?<span style={{color:'var(--text-dim)',fontWeight:400}}>— {item.token_cost}T</span>:''}</div>
+                <div style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>{item.item_key}{item.requires_rank?' · Rank '+item.requires_rank:''}</div>
+              </div>
+              <div style={{display:'flex',gap:'4px'}}>
+                <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'11px'}} onClick={()=>startEdit(item)}>Edit</button>
+                <button className="btn btn-sm btn-danger" style={{padding:'4px 10px',fontSize:'11px'}} onClick={()=>doDelete(item)}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ShopOrders({ orders, onDone, privacyMode }) {
   const [reviewItem, setReviewItem] = useState(null);
   const [adminNote, setAdminNote] = useState('');
@@ -2547,6 +2834,8 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   const [pendingTx, setPendingTx] = useState([]);
   const [lbData, setLbData] = useState([]);
   const [shopOrders, setShopOrders] = useState([]);
+  const [allTasks, setAllTasks] = useState([]);
+  const [shopItems, setShopItems] = useState([]);
   const [alertPrefs, setAlertPrefs] = useState({ show_overdue_alerts: true, show_fine_review_alerts: true, show_high_balance_alerts: true, dismissed_alerts: [] });
  
   // Load alert prefs from Supabase
@@ -2588,9 +2877,11 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   const load = useCallback(async () => {
     setDl(true);
     try {
-      const [p, a, s, pt, lb, so] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips(), getPendingTx(), getLeaderboard().catch(()=>[]), getShopOrders().catch(()=>[])]);
+      const [p, a, s, pt, lb, so, tk, si] = await Promise.all([getProfiles(), getAllLedger(100), getAllStips(), getPendingTx(), getLeaderboard().catch(()=>[]), getShopOrders().catch(()=>[]), getAllTasks().catch(()=>[]), getShopItems().catch(()=>[])]);
       setLbData(lb||[]);
       setShopOrders(so||[]);
+      setAllTasks(tk||[]);
+      setShopItems(si||[]);
       setProfs(p||[]);
       setAct(a||[]);
       setStips(s||[]);
@@ -2639,6 +2930,8 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
         {pg==='shop-orders'&&<ShopOrders orders={shopOrders} onDone={load} privacyMode={privacyMode} />}
+        {pg==='task-manager'&&<TaskManager tasks={allTasks} profiles={profs} onDone={load} privacyMode={privacyMode} />}
+        {pg==='shop-manage'&&<ShopItemManager items={shopItems} onDone={load} />}
         {pg==='activity'&&<div className="page"><div className="page-title">Activity Feed</div><Feed items={act} onTap={vd} limit={100} privacyMode={privacyMode} /></div>}
         {pg==='settings'&&<Settings onLogout={lo} />}
         {pg==='guide'&&<Guide />}
@@ -2660,6 +2953,13 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         <button className={`nav-item ${pg==='shop-orders'?'active':''}`} onClick={()=>setPg('shop-orders')} style={{position:'relative'}}>
           <span className="nav-icon">🛒</span><span className="nav-label">Shop</span>
           {shopOrders.length>0&&<span className="badge">{shopOrders.length}</span>}
+        </button>
+        <button className={`nav-item ${pg==='task-manager'?'active':''}`} onClick={()=>setPg('task-manager')} style={{position:'relative'}}>
+          <span className="nav-icon">📋</span><span className="nav-label">Tasks</span>
+          {allTasks.filter(t=>t.status==='submitted').length>0&&<span className="badge">{allTasks.filter(t=>t.status==='submitted').length}</span>}
+        </button>
+        <button className={`nav-item ${pg==='shop-manage'?'active':''}`} onClick={()=>setPg('shop-manage')}>
+          <span className="nav-icon">🏪</span><span className="nav-label">Items</span>
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
