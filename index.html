@@ -848,6 +848,12 @@ body {
         </div>
       </div>
 
+      <!-- ACTIVE ADD-ONS -->
+      <div id="activeAddonsWrap" style="display:none;margin-top:1.25rem;">
+        <div class="section-title" style="margin-top:0;">🛡️ Active add-ons</div>
+        <div id="activeAddonsList"></div>
+      </div>
+
       <!-- TASKS DUE -->
       <div id="tasksDueWrap" style="display:none;margin-top:1.25rem;">
         <div class="section-title" style="margin-top:0;">📋 Tasks due</div>
@@ -1401,6 +1407,7 @@ function renderProfile() {
   // Check reward unlock for shop
   updateShopTokens();
   updateRewardAccess();
+  renderActiveAddons();
   renderTasksDue();
   renderShopItemsDynamic();
 }
@@ -1564,6 +1571,41 @@ function updateRewardAccess() {
   if (r1) r1.style.opacity = myRank === 1 ? '1' : '0.5';
   if (r2) r2.style.opacity = myRank === 2 ? '1' : '0.5';
   if (r3) r3.style.opacity = myRank === 3 ? '1' : '0.5';
+}
+
+// ===== ACTIVE ADD-ONS =====
+function renderActiveAddons() {
+  var wrap = document.getElementById('activeAddonsWrap');
+  var list = document.getElementById('activeAddonsList');
+  if (!wrap || !list) return;
+
+  // Find approved add-on orders that haven't been used
+  var activeAddons = shopOrdersData.filter(function(o) {
+    return o.status === 'approved' && !o.is_used && (
+      o.item_type === 'interest_shield' || 
+      (shopItemsData.find(function(si) { return si.item_key === o.item_type && si.category === 'addons'; }))
+    );
+  });
+
+  if (activeAddons.length === 0) { wrap.style.display = 'none'; return; }
+
+  wrap.style.display = 'block';
+  var itemLabels = { 'interest_shield': '🛡️ Interest Shield' };
+  shopItemsData.forEach(function(si) { if (si.category === 'addons') itemLabels[si.item_key] = (si.icon || '🛡️') + ' ' + si.name; });
+
+  var html = '';
+  activeAddons.forEach(function(addon) {
+    var label = itemLabels[addon.item_type] || addon.item_type;
+    var approvedDate = formatTimeAgo(new Date(addon.resolved_at || addon.created_at));
+    html += '<div style="background:var(--te-surface);border:1px solid var(--te-green);border-radius:10px;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
+    html += '<div>';
+    html += '<div style="font-size:14px;font-weight:500;color:var(--te-text);">' + label + '</div>';
+    html += '<div style="font-size:11px;color:var(--te-green);margin-top:2px;">Active · Approved ' + approvedDate + '</div>';
+    html += '</div>';
+    html += '<span style="font-size:11px;color:var(--te-green);font-weight:500;padding:4px 10px;border:1px solid var(--te-green);border-radius:6px;">ACTIVE</span>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
 }
 
 // ===== TASKS SYSTEM =====
