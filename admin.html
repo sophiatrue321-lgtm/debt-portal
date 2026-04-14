@@ -414,7 +414,7 @@ const triggerRankUpdate = () => sf('/rest/v1/rpc/update_last_ranks', { method: '
 const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,token_balance)&order=created_at.desc');
 const getAllShopOrders = () => sf('/rest/v1/shop_orders?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=100');
 const markAddonUsed = (id) => sf('/rest/v1/rpc/admin_mark_addon_used', { method: 'POST', body: JSON.stringify({ p_order_id: id }) });
-const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&item_type=in.(interest_shield)&select=*&order=created_at.desc');
+const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&item_type=in.(interest_shield,fine_shield,task_shield)&select=*&order=created_at.desc');
 const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
 const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
 const getAllTasks = () => sf('/rest/v1/tasks?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=200');
@@ -991,17 +991,26 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
       {/* Active Add-ons */}
       {addons.length > 0 && (
         <div style={{background:'rgba(92,184,122,0.06)',border:'1px solid rgba(92,184,122,0.25)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'16px'}}>
-          <div style={{fontSize:'12px',fontWeight:600,color:'var(--green)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'10px'}}>🛡️ Active Add-ons</div>
+          <div style={{fontSize:'12px',fontWeight:600,color:'var(--green)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'10px'}}>🛡️ Active Shields</div>
           {addonMsg && <div className="success-msg" style={{marginBottom:'8px',fontSize:'12px'}}>{addonMsg}</div>}
-          {addons.map(a => (
+          {addons.filter(a=>a.shield_uses_remaining>0&&(!a.shield_expires_at||new Date(a.shield_expires_at)>new Date())).map(a => {
+            const shieldNames = {interest_shield:'🛡️ Interest Shield',fine_shield:'🔰 Fine Shield',task_shield:'🚫 Task Shield'};
+            const name = shieldNames[a.item_type] || a.item_type;
+            const expires = a.shield_expires_at ? new Date(a.shield_expires_at) : null;
+            const isExpired = expires && expires < new Date();
+            return (
             <div key={a.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid rgba(92,184,122,0.1)'}}>
               <div>
-                <div style={{fontSize:'13px',fontWeight:600,color:'var(--text)'}}>{a.item_type === 'interest_shield' ? '🛡️ Interest Shield' : a.item_type}</div>
-                <div style={{fontSize:'11px',color:'var(--text-dim)'}}>Approved {ago(a.resolved_at||a.created_at)}</div>
+                <div style={{fontSize:'13px',fontWeight:600,color:'var(--text)'}}>{name}</div>
+                <div style={{fontSize:'11px',color:'var(--text-dim)'}}>
+                  {a.shield_uses_remaining}/{a.shield_uses_total} uses left
+                  {expires && !isExpired && ' · Expires ' + fmtD(a.shield_expires_at)}
+                </div>
               </div>
-              <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{try{const r=await markAddonUsed(a.id);if(r?.error){setAddonMsg('❌ '+r.error);}else{setAddonMsg('✅ Marked as used');setAddons(addons.filter(x=>x.id!==a.id));}}catch(e){setAddonMsg('❌ '+e.message);}}}>Mark Used</button>
+              <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{try{const r=await markAddonUsed(a.id);if(r?.error){setAddonMsg('❌ '+r.error);}else{setAddonMsg('✅ '+r.shield+' used ('+r.uses_remaining+' left)');const updated=await getDebtorAddons(pid).catch(()=>[]);setAddons(updated||[]);}}catch(e){setAddonMsg('❌ '+e.message);}}}>Use 1</button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1399,11 +1408,11 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
       {isInt ? (
         <div>
           {/* Interest Shield Warning */}
-          {debtorAddons.length > 0 && (
+          {debtorAddons.filter(a=>a.item_type==='interest_shield'&&a.shield_uses_remaining>0).length > 0 && (
             <div style={{background:'rgba(92,184,122,0.08)',border:'2px solid rgba(92,184,122,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
               <div style={{fontSize:'14px',fontWeight:700,color:'var(--green)',marginBottom:'8px'}}>🛡️ This debtor has an active Interest Shield!</div>
-              <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'12px'}}>They purchased a shield to block one interest spin. You should mark it as used instead of applying interest — unless the shield doesn't apply to this specific spin.</div>
-              <button className="btn btn-sm" style={{width:'100%'}} onClick={async()=>{try{const r=await markAddonUsed(debtorAddons[0].id);if(r?.error){alert('Error: '+r.error);}else{alert('✅ Shield marked as used. Debtor notified.');setDebtorAddons(debtorAddons.slice(1));}}catch(e){alert('Error: '+e.message);}}}>🛡️ Mark Shield as Used & Skip Interest</button>
+              <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'12px'}}>They purchased a shield to block interest spins. Mark it as used instead of applying interest — unless the shield doesn't apply to this specific spin.</div>
+              <button className="btn btn-sm" style={{width:'100%'}} onClick={async()=>{const shield=debtorAddons.find(a=>a.item_type==='interest_shield'&&a.shield_uses_remaining>0);if(!shield)return;try{const r=await markAddonUsed(shield.id);if(r?.error){alert('Error: '+r.error);}else{alert('✅ Interest Shield used ('+r.uses_remaining+' left). Debtor notified.');setDebtorAddons(debtorAddons.map(a=>a.id===shield.id?{...a,shield_uses_remaining:r.uses_remaining}:a).filter(a=>a.shield_uses_remaining>0));}}catch(e){alert('Error: '+e.message);}}}>🛡️ Mark Shield as Used & Skip Interest</button>
             </div>
           )}
           <div className="form-group"><label className="form-label">Interest %</label>
@@ -1516,8 +1525,18 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
           )}
         </div>
       ) : (
-        <div className="form-group"><label className="form-label">Amount (£)</label>
-          <input className="fi" type="number" inputMode="decimal" placeholder="0.00" value={amt} onChange={e=>setAmt(e.target.value)} />
+        <div>
+          {/* Fine Shield Warning */}
+          {type==='Fine' && debtorAddons.filter(a=>a.item_type==='fine_shield'&&a.shield_uses_remaining>0).length > 0 && (
+            <div style={{background:'rgba(92,184,122,0.08)',border:'2px solid rgba(92,184,122,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
+              <div style={{fontSize:'14px',fontWeight:700,color:'var(--green)',marginBottom:'8px'}}>🔰 This debtor has an active Fine Shield!</div>
+              <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'12px'}}>They purchased a shield to block fines. Mark it as used instead of applying the fine — unless the shield doesn't apply.</div>
+              <button className="btn btn-sm" style={{width:'100%'}} onClick={async()=>{const shield=debtorAddons.find(a=>a.item_type==='fine_shield'&&a.shield_uses_remaining>0);if(!shield)return;try{const r=await markAddonUsed(shield.id);if(r?.error){alert('Error: '+r.error);}else{alert('✅ Fine Shield used ('+r.uses_remaining+' left). Debtor notified.');setDebtorAddons(debtorAddons.map(a=>a.id===shield.id?{...a,shield_uses_remaining:r.uses_remaining}:a).filter(a=>a.shield_uses_remaining>0));}}catch(e){alert('Error: '+e.message);}}}>🔰 Mark Shield as Used & Skip Fine</button>
+            </div>
+          )}
+          <div className="form-group"><label className="form-label">Amount (£)</label>
+            <input className="fi" type="number" inputMode="decimal" placeholder="0.00" value={amt} onChange={e=>setAmt(e.target.value)} />
+          </div>
         </div>
       )}
       <div className="form-group"><label className="form-label">Admin Fee</label>
@@ -2631,28 +2650,40 @@ function ShopOrders({ orders, onDone, privacyMode }) {
   const [adminNote, setAdminNote] = useState('');
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
+  const [shieldUses, setShieldUses] = useState('1');
+  const [shieldDays, setShieldDays] = useState('');
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
 
   const itemLabels = {
-    'lines': '📝 Lines (15T)',
-    'interest_shield': '🛡️ Interest Shield (40T)',
-    'custom_task': '🎯 Custom Task (100T)',
-    'reward_1st': '🏆 1st Place Reward (Free)',
-    'reward_2nd': '🥈 2nd Place Reward (Free)',
-    'reward_3rd': '🥉 3rd Place Reward (Free)'
+    'lines': '📝 Lines',
+    'interest_shield': '🛡️ Interest Shield',
+    'fine_shield': '🔰 Fine Shield',
+    'task_shield': '🚫 Task Shield',
+    'custom_task': '🎯 Custom Task',
+    'reward_1st': '🏆 1st Place Reward',
+    'reward_2nd': '🥈 2nd Place Reward',
+    'reward_3rd': '🥉 3rd Place Reward'
   };
+
+  const isShield = (type) => ['interest_shield','fine_shield','task_shield'].includes(type);
 
   const openReview = (item) => {
     setReviewItem(item); setAdminNote(''); setRejectReason(''); setShowReject(false); setOk(''); setErr('');
+    setShieldUses('1'); setShieldDays('');
   };
 
   const doApprove = async () => {
     if (!reviewItem) return;
     setLd(true); setErr(''); setOk('');
     try {
-      const result = await approveShopOrder(reviewItem.id, adminNote);
+      const body = { p_order_id: reviewItem.id, p_admin_note: adminNote || null };
+      if (isShield(reviewItem.item_type)) {
+        body.p_shield_uses = parseInt(shieldUses) || 1;
+        body.p_shield_days = shieldDays ? parseInt(shieldDays) : null;
+      }
+      const result = await sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify(body) });
       if (result && result.error) { setErr(result.error); setLd(false); return; }
       setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}`);
       setReviewItem(null);
@@ -2700,6 +2731,24 @@ function ShopOrders({ orders, onDone, privacyMode }) {
 
           {!showReject ? (
             <div>
+              {/* Shield configuration fields */}
+              {isShield(reviewItem.item_type) && (
+                <div style={{background:'rgba(92,184,122,0.06)',border:'1px solid rgba(92,184,122,0.2)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px'}}>
+                  <div style={{fontSize:'11px',fontWeight:600,color:'var(--green)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'8px'}}>🛡️ Shield Settings</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                    <div className="form-group" style={{margin:0}}>
+                      <label className="form-label">Number of Uses</label>
+                      <input className="fi" type="number" value={shieldUses} onChange={e=>setShieldUses(e.target.value)} placeholder="1" min="1" />
+                      <div className="form-hint">How many times can they use it</div>
+                    </div>
+                    <div className="form-group" style={{margin:0}}>
+                      <label className="form-label">Duration (days)</label>
+                      <input className="fi" type="number" value={shieldDays} onChange={e=>setShieldDays(e.target.value)} placeholder="No expiry" min="1" />
+                      <div className="form-hint">Leave empty for no expiry</div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="form-group">
                 <label className="form-label">Admin Note (optional)</label>
                 <input className="fi" type="text" value={adminNote} onChange={e=>setAdminNote(e.target.value)} placeholder="e.g. 50 lines assigned, due Friday..." />
