@@ -1579,28 +1579,32 @@ function renderActiveAddons() {
   var list = document.getElementById('activeAddonsList');
   if (!wrap || !list) return;
 
-  // Find approved add-on orders that haven't been used
+  var shieldTypes = ['interest_shield', 'fine_shield', 'task_shield'];
   var activeAddons = shopOrdersData.filter(function(o) {
-    return o.status === 'approved' && !o.is_used && (
-      o.item_type === 'interest_shield' || 
-      (shopItemsData.find(function(si) { return si.item_key === o.item_type && si.category === 'addons'; }))
-    );
+    if (o.status !== 'approved') return false;
+    if (o.is_used) return false;
+    if (o.shield_uses_remaining !== undefined && o.shield_uses_remaining <= 0) return false;
+    if (o.shield_expires_at && new Date(o.shield_expires_at) < new Date()) return false;
+    return shieldTypes.indexOf(o.item_type) !== -1;
   });
 
   if (activeAddons.length === 0) { wrap.style.display = 'none'; return; }
 
   wrap.style.display = 'block';
-  var itemLabels = { 'interest_shield': '🛡️ Interest Shield' };
-  shopItemsData.forEach(function(si) { if (si.category === 'addons') itemLabels[si.item_key] = (si.icon || '🛡️') + ' ' + si.name; });
+  var shieldNames = { 'interest_shield': '🛡️ Interest Shield', 'fine_shield': '🔰 Fine Shield', 'task_shield': '🚫 Task Shield' };
 
   var html = '';
   activeAddons.forEach(function(addon) {
-    var label = itemLabels[addon.item_type] || addon.item_type;
-    var approvedDate = formatTimeAgo(new Date(addon.resolved_at || addon.created_at));
+    var label = shieldNames[addon.item_type] || addon.item_type;
+    var usesLeft = addon.shield_uses_remaining || 1;
+    var usesTotal = addon.shield_uses_total || 1;
+    var expires = addon.shield_expires_at ? new Date(addon.shield_expires_at) : null;
+    var expiryText = expires ? ' · Expires ' + expires.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+
     html += '<div style="background:var(--te-surface);border:1px solid var(--te-green);border-radius:10px;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
     html += '<div>';
     html += '<div style="font-size:14px;font-weight:500;color:var(--te-text);">' + label + '</div>';
-    html += '<div style="font-size:11px;color:var(--te-green);margin-top:2px;">Active · Approved ' + approvedDate + '</div>';
+    html += '<div style="font-size:11px;color:var(--te-green);margin-top:2px;">' + usesLeft + '/' + usesTotal + ' uses left' + expiryText + '</div>';
     html += '</div>';
     html += '<span style="font-size:11px;color:var(--te-green);font-weight:500;padding:4px 10px;border:1px solid var(--te-green);border-radius:6px;">ACTIVE</span>';
     html += '</div>';
