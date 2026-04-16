@@ -3051,6 +3051,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
           <span className="nav-icon">🏪</span><span className="nav-label">Items</span>
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
+        <button className={`nav-item ${pg==='tasks'?'active':''}`} onClick={()=>setPg('tasks')}><span className="nav-icon">📋</span><span className="nav-label">Tasks</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
