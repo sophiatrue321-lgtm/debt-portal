@@ -592,7 +592,7 @@ body {
 }
 .wheel-tier-btn:hover:not(:disabled) { border-color: rgba(201,168,76,0.3); }
 .wheel-tier-btn.active { border-color: var(--te-gold); background: rgba(201,168,76,0.08); }
-.wheel-tier-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.wheel-tier-btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 .wheel-tier-cost { font-size: 11px; color: var(--te-text-dim); letter-spacing: 1px; }
 .wheel-main-spin-btn {
   display: block; width: 100%; max-width: 300px;
@@ -605,7 +605,7 @@ body {
   text-transform: uppercase; transition: all 0.3s;
 }
 .wheel-main-spin-btn:hover:not(:disabled) { background: var(--te-gold); color: var(--te-bg); }
-.wheel-main-spin-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.wheel-main-spin-btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 .wheel-tier-badge {
   font-size: 11px; font-weight: 500; letter-spacing: 2px;
   text-transform: uppercase; padding: 3px 12px; border-radius: 4px;
@@ -1925,15 +1925,28 @@ function drawWheel(tier) {
 
 function selectWheelTier(tier) {
   if (isSpinning) return;
-  currentWheelTier = tier;
-  document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.classList.remove('active'); });
-  document.getElementById('sel' + tier.charAt(0).toUpperCase() + tier.slice(1)).classList.add('active');
-  drawWheel(tier);
-  var rotor = document.getElementById('wheelRotor');
-  rotor.style.transition = 'none';
-  wheelRotation = 0;
-  rotor.style.transform = 'rotate(0deg)';
-  updateWheelButtons();
+  // Re-fetch token balance from server to prevent stale data exploits
+  sb.from('profiles').select('token_balance, current_balance').eq('id', currentProfile.id).single().then(function(res) {
+    if (res.data) {
+      currentProfile.token_balance = res.data.token_balance;
+      currentProfile.current_balance = res.data.current_balance;
+    }
+    var tokens = (currentProfile && currentProfile.token_balance) || 0;
+    var config = WHEEL_CONFIG[tier];
+    if (tokens < config.cost) {
+      updateWheelButtons();
+      return;
+    }
+    currentWheelTier = tier;
+    document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.getElementById('sel' + tier.charAt(0).toUpperCase() + tier.slice(1)).classList.add('active');
+    drawWheel(tier);
+    var rotor = document.getElementById('wheelRotor');
+    rotor.style.transition = 'none';
+    wheelRotation = 0;
+    rotor.style.transform = 'rotate(0deg)';
+    updateWheelButtons();
+  });
 }
 
 function updateWheelButtons() {
@@ -1948,8 +1961,19 @@ function updateWheelButtons() {
 
 async function spinWheel() {
   var config = WHEEL_CONFIG[currentWheelTier];
+  // Re-fetch real token balance from server before spinning
+  try {
+    var freshData = await sb.from('profiles').select('token_balance, current_balance').eq('id', currentProfile.id).single();
+    if (freshData.data) {
+      currentProfile.token_balance = freshData.data.token_balance;
+      currentProfile.current_balance = freshData.data.current_balance;
+    }
+  } catch(e) { /* proceed with local data */ }
   var tokens = (currentProfile && currentProfile.token_balance) || 0;
-  if (tokens < config.cost || isSpinning) return;
+  if (tokens < config.cost || isSpinning) {
+    updateWheelButtons();
+    return;
+  }
   isSpinning = true;
   var mainBtn = document.getElementById('btnMainSpin');
   mainBtn.disabled = true;
@@ -2021,7 +2045,6 @@ async function loadMyTasks() {
   var container = document.getElementById('tasksList');
   container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>';
   try {
-    // Get bulk task assignments for this debtor
     var result = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, deadline, fine_amount)').eq('profile_id', currentProfile.id).order('created_at', { ascending: false });
     var assignments = result.data || [];
     if (result.error) throw result.error;
@@ -2038,17 +2061,14 @@ async function loadMyTasks() {
       var statusColor = a.status === 'completed' ? 'var(--te-green)' : (a.status === 'fined' ? 'var(--te-red)' : (overdue ? 'var(--te-red)' : 'var(--te-gold)'));
       var statusIcon = a.status === 'completed' ? '✅' : (a.status === 'fined' ? '⚠️' : (overdue ? '⏰' : '📋'));
       var statusLabel = a.status === 'completed' ? 'Completed' : (a.status === 'fined' ? 'Fined' : (overdue ? 'OVERDUE' : 'Assigned'));
-
       html += '<div style="background:var(--te-surface);border:1px solid ' + (overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-border)') + ';border-radius:10px;padding:16px;margin-bottom:12px;">';
       html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
       html += '<div style="font-size:15px;font-weight:600;color:var(--te-text);flex:1;">' + statusIcon + ' ' + (task.title || 'Task') + '</div>';
       html += '<div style="font-size:11px;font-weight:600;color:' + statusColor + ';text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;margin-left:8px;">' + statusLabel + '</div>';
       html += '</div>';
-
       if (task.description) {
         html += '<div style="font-size:13px;color:var(--te-text-dim);line-height:1.6;margin-bottom:10px;white-space:pre-wrap;">' + task.description.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
       }
-
       html += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
       if (dl) {
         var deadlineStr = dl.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ' at ' + dl.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
