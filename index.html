@@ -777,6 +777,7 @@ body {
     <button class="nav-tab" data-tab="profile" onclick="switchTab(this)">My Profile</button>
     <button class="nav-tab" data-tab="ledger" onclick="switchTab(this)">Ledger</button>
     <button class="nav-tab" data-tab="submit" onclick="switchTab(this)">Submit</button>
+    <button class="nav-tab" data-tab="tasks" onclick="switchTab(this);loadMyTasks()">Tasks</button>
     <button class="nav-tab" data-tab="shop" onclick="switchTab(this)">Shop</button>
     <button class="nav-tab" data-tab="wheel" onclick="switchTab(this)">Wheel</button>
     <button class="nav-tab" data-tab="stipulations" onclick="switchTab(this)">Stipulations</button>
@@ -934,6 +935,21 @@ body {
       <div class="section-title">Your submissions</div>
       <div id="submissionsList">
         <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+      </div>
+    </div>
+
+    <!-- ========== TASKS TAB ========== -->
+    <div class="tab-panel" id="tab-tasks">
+      <div class="codex-header" style="padding:1.5rem 0 1rem;">
+        <div class="codex-crown">📋</div>
+        <div class="codex-title">Your Tasks</div>
+        <div class="codex-sub">Assigned by the Empress. Complete before the deadline.</div>
+      </div>
+      <div id="tasksList">
+        <div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>
+      </div>
+      <div class="codex-warn" style="margin-top:16px;">
+        Tasks are assigned by the Empress. Failure to complete by the deadline may result in a fine. Completed tasks are marked with ✅.
       </div>
     </div>
 
@@ -1996,6 +2012,65 @@ function switchTab(el) {
   var tabId = el.getAttribute('data-tab');
   document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
   document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// ===== MY TASKS =====
+var myTasksLoaded = false;
+async function loadMyTasks() {
+  if (myTasksLoaded) return;
+  var container = document.getElementById('tasksList');
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>';
+  try {
+    // Get bulk task assignments for this debtor
+    var result = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, deadline, fine_amount)').eq('profile_id', currentProfile.id).order('created_at', { ascending: false });
+    var assignments = result.data || [];
+    if (result.error) throw result.error;
+    if (assignments.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-text-dim);font-size:14px;">No tasks assigned yet. Check back soon.</div>';
+      myTasksLoaded = true;
+      return;
+    }
+    var html = '';
+    assignments.forEach(function(a) {
+      var task = a.bulk_tasks || {};
+      var dl = task.deadline ? new Date(task.deadline) : null;
+      var overdue = dl && dl < new Date() && a.status === 'assigned';
+      var statusColor = a.status === 'completed' ? 'var(--te-green)' : (a.status === 'fined' ? 'var(--te-red)' : (overdue ? 'var(--te-red)' : 'var(--te-gold)'));
+      var statusIcon = a.status === 'completed' ? '✅' : (a.status === 'fined' ? '⚠️' : (overdue ? '⏰' : '📋'));
+      var statusLabel = a.status === 'completed' ? 'Completed' : (a.status === 'fined' ? 'Fined' : (overdue ? 'OVERDUE' : 'Assigned'));
+
+      html += '<div style="background:var(--te-surface);border:1px solid ' + (overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-border)') + ';border-radius:10px;padding:16px;margin-bottom:12px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
+      html += '<div style="font-size:15px;font-weight:600;color:var(--te-text);flex:1;">' + statusIcon + ' ' + (task.title || 'Task') + '</div>';
+      html += '<div style="font-size:11px;font-weight:600;color:' + statusColor + ';text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;margin-left:8px;">' + statusLabel + '</div>';
+      html += '</div>';
+
+      if (task.description) {
+        html += '<div style="font-size:13px;color:var(--te-text-dim);line-height:1.6;margin-bottom:10px;white-space:pre-wrap;">' + task.description.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+      }
+
+      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
+      if (dl) {
+        var deadlineStr = dl.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ' at ' + dl.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        html += '<div style="font-size:11px;color:' + (overdue ? 'var(--te-red)' : 'var(--te-text-dim)') + ';"><span style="font-weight:600;">⏰ Deadline:</span> ' + deadlineStr + '</div>';
+      }
+      if (task.fine_amount > 0 && a.status === 'assigned') {
+        html += '<div style="font-size:11px;color:var(--te-red);"><span style="font-weight:600;">⚠️ Fine if missed:</span> £' + parseFloat(task.fine_amount).toFixed(2) + '</div>';
+      }
+      if (a.completed_at) {
+        html += '<div style="font-size:11px;color:var(--te-green);"><span style="font-weight:600;">✅ Completed:</span> ' + new Date(a.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>';
+      }
+      if (a.fined_at) {
+        html += '<div style="font-size:11px;color:var(--te-red);"><span style="font-weight:600;">Fined:</span> ' + new Date(a.fined_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+    container.innerHTML = html;
+    myTasksLoaded = true;
+  } catch(e) {
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-red);font-size:13px;">Error loading tasks: ' + (e.message || e) + '</div>';
+  }
 }
 
 // ===== SHOP SUB-NAVIGATION =====
