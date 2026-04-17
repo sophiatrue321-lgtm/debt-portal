@@ -995,6 +995,8 @@ body {
         <div class="codex-warn" style="margin-top:12px;">Tokens are deducted only after the Empress approves. No refunds.</div>
       </div>
 
+      <div id="shopMessage" style="display:none;margin-bottom:16px;position:sticky;top:60px;z-index:50;"></div>
+
       <!-- ORDERS -->
       <div class="shop-section" id="shop-orders">
         <div class="section-title" style="margin-top:0;">Your orders</div>
@@ -1003,7 +1005,6 @@ body {
         </div>
       </div>
 
-      <div id="shopMessage" style="display:none;margin-top:12px;"></div>
     </div>
 
     <!-- ========== WHEEL TAB ========== -->
@@ -1507,7 +1508,13 @@ function renderShopOrders() {
   var itemLabels = {
     'lines': '📝 Lines',
     'interest_shield': '🛡️ Interest Shield',
+    'fine_shield': '🔰 Fine Shield',
+    'task_shield': '🚫 Task Shield',
     'custom_task': '🎯 Custom Task',
+    'empress_voicenote': '🎧 Empress Voice Note',
+    'dm_session': '💌 Private DM Session',
+    'custom_wallpaper': '🖼️ Custom Wallpaper',
+    'debt_freeze': '🥶 Debt Freeze',
     'reward_1st': '🏆 1st Place Reward',
     'reward_2nd': '🥈 2nd Place Reward',
     'reward_3rd': '🥉 3rd Place Reward'
@@ -1515,7 +1522,7 @@ function renderShopOrders() {
   var html = '';
   shopOrdersData.forEach(function(order) {
     var statusClass = 'status-' + order.status;
-    var statusLabel = order.status.charAt(0).toUpperCase() + order.status.slice(1);
+    var statusLabel = order.status === 'pending' ? '⏳ Pending Approval' : (order.status === 'approved' ? '✅ Approved' : (order.status === 'rejected' ? '❌ Rejected' : order.status.charAt(0).toUpperCase() + order.status.slice(1)));
     var label = itemLabels[order.item_type] || order.item_type;
     var dateStr = formatTimeAgo(new Date(order.created_at));
     html += '<div class="submission-card">';
@@ -1541,24 +1548,32 @@ function renderShopOrders() {
 }
 
 async function placeShopOrder(itemType) {
+  if (!confirm('Submit this order? Tokens will be deducted once approved by the Empress.')) return;
   var msgEl = document.getElementById('shopMessage');
   msgEl.style.display = 'block';
   msgEl.className = '';
-  msgEl.innerHTML = '<div class="loading-spinner" style="padding:0.5rem;"><div class="spinner"></div>Submitting...</div>';
+  msgEl.innerHTML = '<div class="loading-spinner" style="padding:0.5rem;"><div class="spinner"></div>Submitting order...</div>';
   try {
     var result = await sb.rpc('place_shop_order', { p_item_type: itemType, p_note: null });
     if (result.error) throw result.error;
     var data = result.data;
     if (data.error) {
-      msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">' + data.error + '</div>';
+      msgEl.innerHTML = '<div style="background:rgba(196,92,92,0.12);border:1px solid rgba(196,92,92,0.4);border-radius:8px;padding:16px;text-align:center;"><div style="font-size:18px;margin-bottom:8px;">❌</div><div style="font-size:14px;font-weight:600;color:var(--te-red);margin-bottom:4px;">Order Failed</div><div style="font-size:13px;color:var(--te-text-dim);">' + data.error + '</div></div>';
+      setTimeout(function() { msgEl.style.display = 'none'; }, 6000);
     } else {
-      msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-green);color:var(--te-green);">\u2705 ' + data.message + '</div>';
+      msgEl.innerHTML = '<div style="background:rgba(92,184,122,0.12);border:1px solid rgba(92,184,122,0.4);border-radius:8px;padding:20px;text-align:center;"><div style="font-size:24px;margin-bottom:8px;">✅</div><div style="font-size:16px;font-weight:600;color:var(--te-green);margin-bottom:6px;">Order Submitted!</div><div style="font-size:13px;color:var(--te-text-dim);line-height:1.6;">Your order is now <strong>pending approval</strong> from the Empress.<br>Tokens will be deducted once approved.<br>Check the <strong>Orders</strong> tab to track your order status.</div></div>';
+      // Refresh orders list and switch to orders tab
       await loadShopOrders();
+      // Auto-switch to orders tab after a moment
+      setTimeout(function() {
+        var ordersBtn = document.querySelector('[onclick*="switchShop"][onclick*="orders"]');
+        if (ordersBtn) ordersBtn.click();
+      }, 2000);
+      setTimeout(function() { msgEl.style.display = 'none'; }, 8000);
     }
-    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
   } catch(e) {
-    msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">Error: ' + (e.message || 'Unknown error') + '</div>';
-    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
+    msgEl.innerHTML = '<div style="background:rgba(196,92,92,0.12);border:1px solid rgba(196,92,92,0.4);border-radius:8px;padding:16px;text-align:center;"><div style="font-size:18px;margin-bottom:8px;">❌</div><div style="font-size:14px;font-weight:600;color:var(--te-red);margin-bottom:4px;">Error</div><div style="font-size:13px;color:var(--te-text-dim);">' + (e.message || 'Unknown error') + '</div></div>';
+    setTimeout(function() { msgEl.style.display = 'none'; }, 6000);
   }
 }
 
