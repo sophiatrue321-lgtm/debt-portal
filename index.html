@@ -1718,6 +1718,7 @@ function renderShopItemsDynamic() {
   if (!rewardsEl || !tasksEl || !addonsEl) return;
 
   var myId = currentProfile ? currentProfile.id : null;
+  var myTokens = currentProfile ? (currentProfile.token_balance || 0) : 0;
   var myRank = 999;
   leaderboardData.forEach(function(row) {
     if (row.profile_id === myId) myRank = row.rank_position;
@@ -1732,12 +1733,18 @@ function renderShopItemsDynamic() {
   else {
     var rHtml = '';
     rewards.forEach(function(item) {
-      var canClaim = item.requires_rank && myRank === item.requires_rank;
+      var isRankReward = item.requires_rank != null;
+      var canClaim = false;
+      if (isRankReward) {
+        canClaim = myRank === item.requires_rank;
+      } else {
+        canClaim = myTokens >= (item.token_cost || 0);
+      }
       var opacity = canClaim ? '1' : '0.5';
       rHtml += '<div class="reward-card" style="opacity:' + opacity + ';">';
       rHtml += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-      rHtml += '<div class="reward-rank">' + (item.icon || '🏆') + ' ' + item.name + '</div>';
-      rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>Claim</button>';
+      rHtml += '<div class="reward-rank">' + (item.icon || '🏆') + ' ' + item.name + (item.token_cost > 0 ? ' — ' + item.token_cost + 'T' : '') + '</div>';
+      rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? 'Claim' : 'Purchase') + '</button>';
       rHtml += '</div>';
       rHtml += '<div class="reward-body" style="margin-top:8px;">' + (item.description || '') + '</div>';
       rHtml += '</div>';
@@ -1925,7 +1932,6 @@ function drawWheel(tier) {
 
 function selectWheelTier(tier) {
   if (isSpinning) return;
-  // Re-fetch token balance from server to prevent stale data exploits
   sb.from('profiles').select('token_balance, current_balance').eq('id', currentProfile.id).single().then(function(res) {
     if (res.data) {
       currentProfile.token_balance = res.data.token_balance;
@@ -1933,10 +1939,7 @@ function selectWheelTier(tier) {
     }
     var tokens = (currentProfile && currentProfile.token_balance) || 0;
     var config = WHEEL_CONFIG[tier];
-    if (tokens < config.cost) {
-      updateWheelButtons();
-      return;
-    }
+    if (tokens < config.cost) { updateWheelButtons(); return; }
     currentWheelTier = tier;
     document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.classList.remove('active'); });
     document.getElementById('sel' + tier.charAt(0).toUpperCase() + tier.slice(1)).classList.add('active');
@@ -1961,7 +1964,6 @@ function updateWheelButtons() {
 
 async function spinWheel() {
   var config = WHEEL_CONFIG[currentWheelTier];
-  // Re-fetch real token balance from server before spinning
   try {
     var freshData = await sb.from('profiles').select('token_balance, current_balance').eq('id', currentProfile.id).single();
     if (freshData.data) {
@@ -1970,10 +1972,7 @@ async function spinWheel() {
     }
   } catch(e) { /* proceed with local data */ }
   var tokens = (currentProfile && currentProfile.token_balance) || 0;
-  if (tokens < config.cost || isSpinning) {
-    updateWheelButtons();
-    return;
-  }
+  if (tokens < config.cost || isSpinning) { updateWheelButtons(); return; }
   isSpinning = true;
   var mainBtn = document.getElementById('btnMainSpin');
   mainBtn.disabled = true;
