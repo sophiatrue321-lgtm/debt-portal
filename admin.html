@@ -2878,6 +2878,10 @@ function ShopOrders({ orders, onDone, privacyMode }) {
   const [showReject, setShowReject] = useState(false);
   const [shieldUses, setShieldUses] = useState('1');
   const [shieldDays, setShieldDays] = useState('');
+  const [taskDuration, setTaskDuration] = useState('');
+  const [activeTasks, setActiveTasks] = useState([]);
+  const [activeTab, setActiveTab] = useState('pending');
+  const [taskLd, setTaskLd] = useState(false);
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
@@ -2894,10 +2898,22 @@ function ShopOrders({ orders, onDone, privacyMode }) {
   };
 
   const isShield = (type) => ['interest_shield','fine_shield','task_shield'].includes(type);
+  const isTask = (type) => ['lines','custom_task'].includes(type);
+
+  const loadActiveTasks = async () => {
+    setTaskLd(true);
+    try {
+      const d = await sf('/rest/v1/shop_orders?task_status=in.(active,completed,failed)&select=*,profiles!inner(display_name,debtor_number,username)&order=created_at.desc&limit=100');
+      setActiveTasks(d || []);
+    } catch(e) { console.error(e); }
+    setTaskLd(false);
+  };
+
+  useEffect(() => { loadActiveTasks(); }, []);
 
   const openReview = (item) => {
     setReviewItem(item); setAdminNote(''); setRejectReason(''); setShowReject(false); setOk(''); setErr('');
-    setShieldUses('1'); setShieldDays('');
+    setShieldUses('1'); setShieldDays(''); setTaskDuration('');
   };
 
   const doApprove = async () => {
@@ -2909,11 +2925,15 @@ function ShopOrders({ orders, onDone, privacyMode }) {
         body.p_shield_uses = parseInt(shieldUses) || 1;
         body.p_shield_days = shieldDays ? parseInt(shieldDays) : null;
       }
+      if (isTask(reviewItem.item_type) && taskDuration) {
+        body.p_task_duration_days = parseInt(taskDuration) || null;
+      }
       const result = await sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify(body) });
       if (result && result.error) { setErr(result.error); setLd(false); return; }
-      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}`);
+      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}${result.task_duration ? ' Duration: ' + result.task_duration + ' days.' : ''}`);
       setReviewItem(null);
       onDone?.();
+      loadActiveTasks();
     } catch(e) { setErr('Error: ' + e.message); }
     setLd(false);
   };
@@ -2933,10 +2953,21 @@ function ShopOrders({ orders, onDone, privacyMode }) {
 
   return (
     <div className="page">
-      <div className="page-title">🛒 Shop Orders ({orders.length})</div>
+      <div className="page-title">🛒 Shop Orders</div>
+      
+      <div className="tabs">
+        <button className={`tab ${activeTab==='pending'?'active':''}`} onClick={()=>setActiveTab('pending')}>Pending ({orders.length})</button>
+        <button className={`tab ${activeTab==='active'?'active':''}`} onClick={()=>{setActiveTab('active');loadActiveTasks();}}>Active Tasks ({activeTasks.filter(t=>t.task_status==='active').length})</button>
+        <button className={`tab ${activeTab==='history'?'active':''}`} onClick={()=>{setActiveTab('history');loadActiveTasks();}}>History</button>
+      </div>
+
       {ok && <div className="success-msg" style={{marginBottom:'16px'}}>{ok}</div>}
       {err && <div className="error-msg" style={{marginBottom:'16px'}}>{err}</div>}
-      {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
+
+      {/* === PENDING TAB === */}
+      {activeTab === 'pending' && (
+        <div>
+          {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
 
       {reviewItem && (
         <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'20px'}}>
@@ -2972,6 +3003,17 @@ function ShopOrders({ orders, onDone, privacyMode }) {
                       <input className="fi" type="number" value={shieldDays} onChange={e=>setShieldDays(e.target.value)} placeholder="No expiry" min="1" />
                       <div className="form-hint">Leave empty for no expiry</div>
                     </div>
+                  </div>
+                </div>
+              )}
+              {/* Task duration config */}
+              {isTask(reviewItem.item_type) && (
+                <div style={{background:'rgba(201,168,76,0.06)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px'}}>
+                  <div style={{fontSize:'11px',fontWeight:600,color:'var(--gold)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'8px'}}>⏱️ Timed Task Settings (optional)</div>
+                  <div className="form-group" style={{margin:0}}>
+                    <label className="form-label">Duration (days)</label>
+                    <input className="fi" type="number" value={taskDuration} onChange={e=>setTaskDuration(e.target.value)} placeholder="e.g. 7 for a 7-day challenge" min="1" />
+                    <div className="form-hint">Leave empty if this isn't a multi-day task. Debtor will see a day-by-day countdown.</div>
                   </div>
                 </div>
               )}
@@ -3020,6 +3062,101 @@ function ShopOrders({ orders, onDone, privacyMode }) {
               <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
             </div>
           ))}
+        </div>
+      )}
+        </div>
+      )}
+
+      {/* === ACTIVE TASKS TAB === */}
+      {activeTab === 'active' && (
+        <div>
+          {taskLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
+            activeTasks.filter(t=>t.task_status==='active').length === 0 ? <div className="empty-state">No active timed tasks</div> :
+            <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+              {activeTasks.filter(t=>t.task_status==='active').map(t => {
+                const daysLeft = (t.task_duration_days || 0) - (t.task_days_completed || 0);
+                const pct = t.task_duration_days > 0 ? Math.round(((t.task_days_completed || 0) / t.task_duration_days) * 100) : 0;
+                const startDate = t.task_start_date ? new Date(t.task_start_date) : null;
+                const daysSinceStart = startDate ? Math.floor((Date.now() - startDate.getTime()) / (1000*60*60*24)) : 0;
+                return (
+                  <div key={t.id} style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'16px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                      <div>
+                        <div style={{fontSize:'14px',fontWeight:600,color:'var(--gold)'}}>{itemLabels[t.item_type] || t.item_type}</div>
+                        <div style={{fontSize:'12px',color:'var(--text-dim)'}}>{t.profiles?.debtor_number} — {privacyMode ? '••••' : t.profiles?.display_name}</div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:'16px',fontWeight:700,color: daysLeft <= 1 ? 'var(--green)' : 'var(--text)'}}>{daysLeft} day{daysLeft !== 1 ? 's' : ''} left</div>
+                        <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Started {fmtD(t.task_start_date)}</div>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{height:'8px',background:'var(--bg-input)',borderRadius:'4px',overflow:'hidden',marginBottom:'10px'}}>
+                      <div style={{height:'100%',width:`${pct}%`,background: pct >= 100 ? 'var(--green)' : 'var(--gold)',borderRadius:'4px',transition:'width 0.3s'}} />
+                    </div>
+                    {/* Day checkboxes */}
+                    <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'10px'}}>
+                      {Array.from({length: t.task_duration_days || 0}, (_,i) => {
+                        const completed = i < (t.task_days_completed || 0);
+                        const log = (t.task_day_log || [])[i];
+                        return (
+                          <div key={i} title={log?.completed_at ? 'Day ' + (i+1) + ' — ' + fmtD(log.completed_at) + (log.note ? ' — ' + log.note : '') : 'Day ' + (i+1)} style={{
+                            width:'32px',height:'32px',borderRadius:'50%',
+                            background: completed ? 'var(--gold)' : 'var(--bg-input)',
+                            border: '2px solid ' + (completed ? 'var(--gold)' : 'var(--border)'),
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            fontSize:'11px',color: completed ? '#0a0a0a' : 'var(--text-muted)',fontWeight:700
+                          }}>
+                            {completed ? '✓' : i+1}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {t.admin_note && <div style={{fontSize:'12px',color:'var(--text-dim)',marginBottom:'10px',fontStyle:'italic'}}>📝 {t.admin_note}</div>}
+                    {/* Mark day buttons */}
+                    <div style={{display:'flex',gap:'8px'}}>
+                      <button className="btn btn-sm" style={{flex:1}} onClick={async()=>{
+                        try{
+                          const r=await sf('/rest/v1/rpc/admin_mark_task_day',{method:'POST',body:JSON.stringify({p_order_id:t.id})});
+                          if(r?.error){setErr(r.error);}else{setOk(`✅ Day ${r.days_completed}/${r.total_days} marked${r.is_done?' — TASK COMPLETE!':''}`);loadActiveTasks();onDone?.();}
+                        }catch(e){setErr('Error: '+e.message);}
+                      }} disabled={(t.task_days_completed||0)>=(t.task_duration_days||0)}>✓ Mark Day {(t.task_days_completed||0)+1}</button>
+                      <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{
+                        try{
+                          const r=await sf('/rest/v1/rpc/admin_undo_task_day',{method:'POST',body:JSON.stringify({p_order_id:t.id})});
+                          if(r?.error){setErr(r.error);}else{setOk('↩ Undid day mark');loadActiveTasks();}
+                        }catch(e){setErr('Error: '+e.message);}
+                      }} disabled={(t.task_days_completed||0)<=0}>↩ Undo</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* === HISTORY TAB === */}
+      {activeTab === 'history' && (
+        <div>
+          {taskLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
+            activeTasks.filter(t=>t.task_status==='completed'||t.task_status==='failed').length === 0 ? <div className="empty-state">No completed tasks yet</div> :
+            <div className="feed-list">
+              {activeTasks.filter(t=>t.task_status==='completed'||t.task_status==='failed').map(t => (
+                <div className="feed-item" key={t.id}>
+                  <div className="feed-icon" style={{background:t.task_status==='completed'?'rgba(76,175,80,0.15)':'rgba(231,76,60,0.15)'}}>{t.task_status==='completed'?'✅':'❌'}</div>
+                  <div className="feed-body">
+                    <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {itemLabels[t.item_type]||t.item_type}</div>
+                    <div className="feed-time">
+                      {t.task_status==='completed'?'Completed':'Failed'} · {t.task_days_completed||0}/{t.task_duration_days||0} days
+                      {t.admin_note&&' · '+t.admin_note}
+                      {' · '+ago(t.resolved_at||t.created_at)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
         </div>
       )}
     </div>
