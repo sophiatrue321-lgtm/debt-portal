@@ -777,7 +777,7 @@ body {
     <button class="nav-tab" data-tab="profile" onclick="switchTab(this)">My Profile</button>
     <button class="nav-tab" data-tab="ledger" onclick="switchTab(this)">Ledger</button>
     <button class="nav-tab" data-tab="submit" onclick="switchTab(this)">Submit</button>
-    <button class="nav-tab" data-tab="tasks" onclick="switchTab(this);loadMyTasks()">Tasks</button>
+    <button class="nav-tab" data-tab="tasks" onclick="switchTab(this);loadOngoingTasks()">Tasks</button>
     <button class="nav-tab" data-tab="shop" onclick="switchTab(this)">Shop</button>
     <button class="nav-tab" data-tab="wheel" onclick="switchTab(this)">Wheel</button>
     <button class="nav-tab" data-tab="stipulations" onclick="switchTab(this)">Stipulations</button>
@@ -945,11 +945,27 @@ body {
         <div class="codex-title">Your Tasks</div>
         <div class="codex-sub">Assigned by the Empress. Complete before the deadline.</div>
       </div>
-      <div id="tasksList">
-        <div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>
+      <!-- Task sub-tabs -->
+      <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;">
+        <button class="shop-subnav-btn active" onclick="switchTaskTab(this,'ongoing')" style="flex:1;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--te-border);background:var(--te-gold);color:#0a0a0a;font-family:inherit;text-align:center;">Ongoing</button>
+        <button class="shop-subnav-btn" onclick="switchTaskTab(this,'assigned')" style="flex:1;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--te-border);background:transparent;color:var(--te-text-dim);font-family:inherit;text-align:center;">Assigned</button>
+        <button class="shop-subnav-btn" onclick="switchTaskTab(this,'history')" style="flex:1;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--te-border);background:transparent;color:var(--te-text-dim);font-family:inherit;text-align:center;">History</button>
+      </div>
+      <div id="tasksOngoing" class="task-section active">
+        <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+      </div>
+      <div id="tasksAssigned" class="task-section" style="display:none;">
+        <div id="tasksList">
+          <div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>
+        </div>
+      </div>
+      <div id="tasksHistory" class="task-section" style="display:none;">
+        <div id="tasksHistoryList">
+          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
+        </div>
       </div>
       <div class="codex-warn" style="margin-top:16px;">
-        Tasks are assigned by the Empress. Failure to complete by the deadline may result in a fine. Completed tasks are marked with ✅.
+        Tasks are assigned by the Empress. Failure to complete by the deadline may result in a fine. Check in daily on timed tasks.
       </div>
     </div>
 
@@ -1743,15 +1759,18 @@ function renderShopItemsDynamic() {
   var tasks = shopItemsData.filter(function(i) { return i.category === 'tasks'; });
   var addons = shopItemsData.filter(function(i) { return i.category === 'addons'; });
 
-  // Render rewards
+  // Render rewards - locked to weekly winners only
   if (rewards.length === 0) { rewardsEl.innerHTML = '<div class="empty-state">No rewards available</div>'; }
   else {
+    var myWinPosition = currentProfile ? (currentProfile.last_win_position || 0) : 0;
     var rHtml = '';
     rewards.forEach(function(item) {
       var isRankReward = item.requires_rank != null;
       var canClaim = false;
+      var lockReason = '';
       if (isRankReward) {
-        canClaim = myRank === item.requires_rank;
+        canClaim = myWinPosition === item.requires_rank;
+        if (!canClaim) lockReason = 'Only the ' + (item.requires_rank === 1 ? '1st' : (item.requires_rank === 2 ? '2nd' : '3rd')) + ' place winner this week can claim.';
       } else {
         canClaim = myTokens >= (item.token_cost || 0);
       }
@@ -1759,9 +1778,10 @@ function renderShopItemsDynamic() {
       rHtml += '<div class="reward-card" style="opacity:' + opacity + ';">';
       rHtml += '<div style="display:flex;justify-content:space-between;align-items:center;">';
       rHtml += '<div class="reward-rank">' + (item.icon || '🏆') + ' ' + item.name + (item.token_cost > 0 ? ' — ' + item.token_cost + 'T' : '') + '</div>';
-      rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? 'Claim' : 'Purchase') + '</button>';
+      rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? (canClaim ? '🏆 Claim' : '🔒 Locked') : 'Purchase') + '</button>';
       rHtml += '</div>';
       rHtml += '<div class="reward-body" style="margin-top:8px;">' + (item.description || '') + '</div>';
+      if (lockReason && !canClaim) rHtml += '<div style="font-size:11px;color:var(--te-red);margin-top:6px;font-style:italic;">' + lockReason + '</div>';
       rHtml += '</div>';
     });
     rewardsEl.innerHTML = rHtml;
@@ -2054,6 +2074,158 @@ function switchTab(el) {
 
 // ===== MY TASKS =====
 var myTasksLoaded = false;
+var ongoingTasksLoaded = false;
+var taskHistoryLoaded = false;
+
+function switchTaskTab(el, section) {
+  el.parentElement.querySelectorAll('.shop-subnav-btn').forEach(function(b) { b.classList.remove('active'); b.style.background='transparent'; b.style.color='var(--te-text-dim)'; });
+  el.classList.add('active'); el.style.background='var(--te-gold)'; el.style.color='#0a0a0a';
+  document.querySelectorAll('.task-section').forEach(function(s) { s.style.display='none'; });
+  if (section === 'ongoing') { document.getElementById('tasksOngoing').style.display='block'; loadOngoingTasks(); }
+  else if (section === 'assigned') { document.getElementById('tasksAssigned').style.display='block'; loadMyTasks(); }
+  else if (section === 'history') { document.getElementById('tasksHistory').style.display='block'; loadTaskHistory(); }
+}
+
+async function loadOngoingTasks() {
+  var container = document.getElementById('tasksOngoing');
+  if (!currentProfile) return;
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading...</div>';
+  try {
+    var result = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).eq('task_status', 'active').order('created_at', { ascending: false });
+    var tasks = result.data || [];
+    if (tasks.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-text-dim);font-size:14px;">No active timed tasks right now. Purchase one from the shop!</div>';
+      ongoingTasksLoaded = true;
+      return;
+    }
+    var html = '';
+    var now = new Date();
+    tasks.forEach(function(t) {
+      var daysTotal = t.task_duration_days || 0;
+      var daysCompleted = t.task_days_completed || 0;
+      var daysLeft = daysTotal - daysCompleted;
+      var pct = daysTotal > 0 ? Math.round((daysCompleted / daysTotal) * 100) : 0;
+      var endDate = t.task_end_date ? new Date(t.task_end_date) : null;
+      var overdue = endDate && endDate < now;
+      var log = t.task_checkin_log || [];
+      var today = new Date().toISOString().split('T')[0];
+      var checkedInToday = log.some(function(entry) { return entry.date === today; });
+
+      html += '<div style="background:var(--te-surface);border:1px solid ' + (overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-gold-border)') + ';border-radius:12px;padding:18px;margin-bottom:14px;">';
+      
+      // Header
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+      html += '<div style="font-size:15px;font-weight:600;color:var(--te-text);">⏱️ ' + (t.admin_note || 'Timed Challenge') + '</div>';
+      html += '<div style="font-size:14px;font-weight:700;color:' + (daysLeft <= 1 ? 'var(--te-green)' : (overdue ? 'var(--te-red)' : 'var(--te-text)')) + ';">' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + ' left</div>';
+      html += '</div>';
+      
+      // Progress bar
+      html += '<div style="height:8px;background:var(--te-surface);border:1px solid var(--te-border);border-radius:4px;overflow:hidden;margin-bottom:12px;">';
+      html += '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--te-green)' : 'var(--te-gold)') + ';border-radius:4px;transition:width 0.3s;"></div>';
+      html += '</div>';
+      
+      // Day circles
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;justify-content:center;">';
+      for (var i = 0; i < daysTotal; i++) {
+        var dayDone = i < daysCompleted;
+        var logEntry = log[i] || null;
+        var isPending = logEntry && logEntry.status === 'pending';
+        var bgColor = dayDone ? (isPending ? 'rgba(201,168,76,0.3)' : 'var(--te-gold)') : 'var(--te-surface)';
+        var borderCol = dayDone ? 'var(--te-gold)' : 'var(--te-border)';
+        var txtColor = dayDone ? '#0a0a0a' : 'var(--te-text-dim)';
+        html += '<div style="width:30px;height:30px;border-radius:50%;background:' + bgColor + ';border:2px solid ' + borderCol + ';display:flex;align-items:center;justify-content:center;font-size:11px;color:' + txtColor + ';font-weight:700;">';
+        html += dayDone ? (isPending ? '⏳' : '✓') : (i + 1);
+        html += '</div>';
+      }
+      html += '</div>';
+      
+      // Info
+      html += '<div style="font-size:12px;color:var(--te-text-dim);margin-bottom:12px;text-align:center;">';
+      html += daysCompleted + ' / ' + daysTotal + ' days completed';
+      if (endDate) html += ' · Ends ' + endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      html += '</div>';
+      
+      // Check-in button
+      if (!checkedInToday && daysCompleted < daysTotal && !overdue) {
+        html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\')">📝 Check In for Today</button>';
+      } else if (checkedInToday) {
+        html += '<div style="text-align:center;padding:10px;background:rgba(92,184,122,0.1);border:1px solid rgba(92,184,122,0.3);border-radius:8px;font-size:13px;color:var(--te-green);font-weight:600;">✅ Checked in for today — awaiting approval</div>';
+      } else if (overdue) {
+        html += '<div style="text-align:center;padding:10px;background:rgba(196,92,92,0.1);border:1px solid rgba(196,92,92,0.3);border-radius:8px;font-size:13px;color:var(--te-red);font-weight:600;">⏰ Task deadline has passed</div>';
+      }
+      
+      html += '</div>';
+    });
+    container.innerHTML = html;
+    ongoingTasksLoaded = true;
+  } catch(e) {
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-red);font-size:13px;">Error: ' + (e.message || e) + '</div>';
+  }
+}
+
+async function taskCheckIn(orderId) {
+  try {
+    var result = await sb.rpc('debtor_task_checkin', { p_order_id: orderId, p_note: '' });
+    if (result.error) throw result.error;
+    var data = result.data;
+    if (data.error) { alert(data.error); return; }
+    await loadOngoingTasks();
+  } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
+}
+
+async function loadTaskHistory() {
+  var container = document.getElementById('tasksHistoryList');
+  if (!currentProfile) return;
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading...</div>';
+  try {
+    // Get completed/fined bulk task assignments
+    var bulkResult = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, fine_amount)').eq('profile_id', currentProfile.id).in('status', ['completed', 'fined']).order('created_at', { ascending: false });
+    var bulkHistory = bulkResult.data || [];
+    
+    // Get completed/failed timed tasks from shop_orders
+    var timedResult = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).in('task_status', ['completed', 'failed']).order('created_at', { ascending: false });
+    var timedHistory = timedResult.data || [];
+    
+    if (bulkHistory.length === 0 && timedHistory.length === 0) {
+      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-text-dim);font-size:14px;">No completed tasks yet.</div>';
+      taskHistoryLoaded = true;
+      return;
+    }
+    
+    var html = '';
+    
+    // Timed task history
+    timedHistory.forEach(function(t) {
+      var isComplete = t.task_status === 'completed';
+      html += '<div style="background:var(--te-surface);border:1px solid ' + (isComplete ? 'rgba(92,184,122,0.3)' : 'rgba(196,92,92,0.3)') + ';border-radius:10px;padding:14px 16px;margin-bottom:8px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+      html += '<div style="font-size:14px;font-weight:600;color:' + (isComplete ? 'var(--te-green)' : 'var(--te-red)') + ';">' + (isComplete ? '✅' : '❌') + ' ' + (t.admin_note || 'Timed Challenge') + '</div>';
+      html += '<div style="font-size:11px;color:var(--te-text-dim);">' + (t.task_days_completed || 0) + '/' + (t.task_duration_days || 0) + ' days</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+    
+    // Bulk task history
+    bulkHistory.forEach(function(a) {
+      var task = a.bulk_tasks || {};
+      var isComplete = a.status === 'completed';
+      html += '<div style="background:var(--te-surface);border:1px solid ' + (isComplete ? 'rgba(92,184,122,0.3)' : 'rgba(196,92,92,0.3)') + ';border-radius:10px;padding:14px 16px;margin-bottom:8px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+      html += '<div style="font-size:14px;font-weight:600;color:' + (isComplete ? 'var(--te-green)' : 'var(--te-red)') + ';">' + (isComplete ? '✅' : '⚠️') + ' ' + (task.title || 'Task') + '</div>';
+      html += '<div style="font-size:11px;color:var(--te-text-dim);">' + (isComplete ? 'Completed' : 'Fined') + '</div>';
+      html += '</div>';
+      if (a.completed_at) html += '<div style="font-size:11px;color:var(--te-text-dim);margin-top:4px;">' + new Date(a.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>';
+      if (a.fined_at) html += '<div style="font-size:11px;color:var(--te-red);margin-top:4px;">Fined ' + new Date(a.fined_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + (task.fine_amount ? ' — £' + parseFloat(task.fine_amount).toFixed(2) : '') + '</div>';
+      html += '</div>';
+    });
+    
+    container.innerHTML = html;
+    taskHistoryLoaded = true;
+  } catch(e) {
+    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-red);font-size:13px;">Error: ' + (e.message || e) + '</div>';
+  }
+}
+
 async function loadMyTasks() {
   if (myTasksLoaded) return;
   var container = document.getElementById('tasksList');
