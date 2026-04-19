@@ -855,6 +855,12 @@ body {
         <div id="activeAddonsList"></div>
       </div>
 
+      <!-- ACTIVE TIMED TASKS -->
+      <div id="activeTimedTaskWrap" style="display:none;margin-top:1.25rem;">
+        <div class="section-title" style="margin-top:0;">⏱️ Active challenge</div>
+        <div id="activeTimedTaskCard"></div>
+      </div>
+
       <!-- TASKS DUE -->
       <div id="tasksDueWrap" style="display:none;margin-top:1.25rem;">
         <div class="section-title" style="margin-top:0;">📋 Tasks due</div>
@@ -1442,6 +1448,7 @@ function renderProfile() {
   updateRewardAccess();
   renderActiveAddons();
   renderTasksDue();
+  renderHomeActiveTasks();
   renderShopItemsDynamic();
 }
 
@@ -1740,6 +1747,109 @@ async function markTaskComplete(taskId) {
     await loadTasks();
     renderTasksDue();
   } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
+}
+
+async function renderHomeActiveTasks() {
+  var timedWrap = document.getElementById('activeTimedTaskWrap');
+  var timedCard = document.getElementById('activeTimedTaskCard');
+  var tasksDueWrap = document.getElementById('tasksDueWrap');
+  var tasksDueList = document.getElementById('tasksDueList');
+  if (!currentProfile) return;
+
+  // Load timed tasks from shop_orders
+  try {
+    var timedResult = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).eq('task_status', 'active').order('created_at', { ascending: false });
+    var timedTasks = timedResult.data || [];
+
+    if (timedTasks.length > 0 && timedWrap && timedCard) {
+      timedWrap.style.display = 'block';
+      var tHtml = '';
+      var now = new Date();
+      timedTasks.forEach(function(t) {
+        var daysTotal = t.task_duration_days || 0;
+        var daysCompleted = t.task_days_completed || 0;
+        var daysLeft = daysTotal - daysCompleted;
+        var pct = daysTotal > 0 ? Math.round((daysCompleted / daysTotal) * 100) : 0;
+        var endDate = t.task_end_date ? new Date(t.task_end_date) : null;
+        var log = t.task_checkin_log || [];
+        var today = now.toISOString().split('T')[0];
+        var checkedInToday = log.some(function(entry) { return entry.date === today; });
+
+        tHtml += '<div style="background:var(--te-surface);border:1px solid var(--te-gold-border);border-radius:10px;padding:16px;margin-bottom:8px;">';
+        tHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+        tHtml += '<div style="font-size:14px;font-weight:600;color:var(--te-text);">⏱️ ' + (t.admin_note || 'Timed Challenge') + '</div>';
+        tHtml += '<div style="font-size:13px;font-weight:700;color:' + (daysLeft <= 1 ? 'var(--te-green)' : 'var(--te-text)') + ';">' + daysLeft + 'd left</div>';
+        tHtml += '</div>';
+
+        // Progress bar
+        tHtml += '<div style="height:6px;background:var(--te-surface);border:1px solid var(--te-border);border-radius:3px;overflow:hidden;margin-bottom:10px;">';
+        tHtml += '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--te-green)' : 'var(--te-gold)') + ';border-radius:3px;"></div>';
+        tHtml += '</div>';
+
+        // Day circles
+        tHtml += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;justify-content:center;">';
+        for (var i = 0; i < daysTotal; i++) {
+          var dayDone = i < daysCompleted;
+          tHtml += '<div style="width:26px;height:26px;border-radius:50%;background:' + (dayDone ? 'var(--te-gold)' : 'var(--te-surface)') + ';border:2px solid ' + (dayDone ? 'var(--te-gold)' : 'var(--te-border)') + ';display:flex;align-items:center;justify-content:center;font-size:10px;color:' + (dayDone ? '#0a0a0a' : 'var(--te-text-dim)') + ';font-weight:700;">';
+          tHtml += dayDone ? '✓' : (i + 1);
+          tHtml += '</div>';
+        }
+        tHtml += '</div>';
+
+        tHtml += '<div style="font-size:11px;color:var(--te-text-dim);text-align:center;margin-bottom:10px;">' + daysCompleted + '/' + daysTotal + ' days';
+        if (endDate) tHtml += ' · Ends ' + endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        tHtml += '</div>';
+
+        // Check-in button
+        if (!checkedInToday && daysCompleted < daysTotal) {
+          tHtml += '<button class="login-btn" style="width:100%;padding:10px;font-size:12px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\');setTimeout(renderHomeActiveTasks,1000);">📝 Check in for today</button>';
+        } else if (checkedInToday) {
+          tHtml += '<div style="text-align:center;padding:8px;background:rgba(92,184,122,0.1);border:1px solid rgba(92,184,122,0.3);border-radius:8px;font-size:12px;color:var(--te-green);font-weight:600;">✅ Checked in today</div>';
+        }
+        tHtml += '</div>';
+      });
+      timedCard.innerHTML = tHtml;
+    } else if (timedWrap) {
+      timedWrap.style.display = 'none';
+    }
+  } catch(e) { console.error('Error loading timed tasks:', e); }
+
+  // Load bulk task assignments and show on home
+  try {
+    var bulkResult = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, deadline, fine_amount, is_active)').eq('profile_id', currentProfile.id).eq('status', 'assigned').order('created_at', { ascending: false });
+    var bulkTasks = (bulkResult.data || []).filter(function(a) { return a.bulk_tasks && a.bulk_tasks.is_active !== false; });
+
+    if (bulkTasks.length > 0 && tasksDueWrap && tasksDueList) {
+      tasksDueWrap.style.display = 'block';
+      var bHtml = '';
+      var now = new Date();
+      bulkTasks.forEach(function(a) {
+        var task = a.bulk_tasks || {};
+        var dl = task.deadline ? new Date(task.deadline) : null;
+        var overdue = dl && dl < now;
+        var borderColor = overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-gold-border)';
+
+        bHtml += '<div style="background:var(--te-surface);border:1px solid ' + borderColor + ';border-radius:10px;padding:14px 16px;margin-bottom:8px;">';
+        bHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+        bHtml += '<span style="font-size:14px;font-weight:500;color:var(--te-text);">📋 ' + (task.title || 'Task') + '</span>';
+        if (dl) {
+          if (overdue) bHtml += '<span style="color:var(--te-red);font-weight:600;font-size:12px;">OVERDUE</span>';
+          else {
+            var diff = dl - now;
+            var days = Math.floor(diff / (1000*60*60*24));
+            bHtml += '<span style="color:' + (days <= 1 ? 'var(--te-red)' : 'var(--te-gold)') + ';font-weight:500;font-size:12px;">' + days + 'd left</span>';
+          }
+        }
+        bHtml += '</div>';
+        if (task.description) bHtml += '<div style="font-size:12px;color:var(--te-text-dim);line-height:1.5;margin-bottom:6px;">' + task.description.replace(/</g, '&lt;') + '</div>';
+        if (task.fine_amount > 0) bHtml += '<div style="font-size:11px;color:var(--te-red);">⚠️ Fine if missed: £' + parseFloat(task.fine_amount).toFixed(2) + '</div>';
+        bHtml += '</div>';
+      });
+
+      // Append to existing tasksDueList (don't overwrite renderTasksDue content)
+      tasksDueList.innerHTML = tasksDueList.innerHTML + bHtml;
+    }
+  } catch(e) { console.error('Error loading bulk tasks for home:', e); }
 }
 
 function renderShopItemsDynamic() {
