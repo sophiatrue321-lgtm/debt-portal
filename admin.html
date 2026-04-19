@@ -786,57 +786,8 @@ function Dashboard({ profiles, activity, onView, alerts, privacyMode, alertPrefs
   );
 }
 
-function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity }) {
+function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
   const [q, setQ] = useState('');
-  const [messaged, setMessaged] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('te_messaged') || '{}'); } catch { return {}; }
-  });
-  const [spinDone, setSpinDone] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('te_spin_done') || '{}'); } catch { return {}; }
-  });
-
-  const toggleMessaged = (e, id) => {
-    e.stopPropagation();
-    const nxt = {...messaged, [id]: !messaged[id]};
-    setMessaged(nxt);
-    localStorage.setItem('te_messaged', JSON.stringify(nxt));
-  };
-  const toggleSpin = (e, id) => {
-    e.stopPropagation();
-    const nxt = {...spinDone, [id]: !spinDone[id]};
-    setSpinDone(nxt);
-    localStorage.setItem('te_spin_done', JSON.stringify(nxt));
-  };
-
-  // Reset messaged flags if a payment was logged this week for that debtor
-  useEffect(() => {
-    if (!activity || activity.length === 0) return;
-    const weekStart = getWeekStart(new Date());
-    const updated = {...messaged};
-    let changed = false;
-    profiles.forEach(p => {
-      if (messaged[p.id]) {
-        const hasPay = activity.some(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment') && new Date(a.created_at) >= weekStart);
-        if (hasPay) { updated[p.id] = false; changed = true; }
-      }
-    });
-    if (changed) { setMessaged(updated); localStorage.setItem('te_messaged', JSON.stringify(updated)); }
-  }, [activity, profiles]);
-
-  // Reset spin flags on Sunday (check if we're in a new week)
-  useEffect(() => {
-    const lastReset = localStorage.getItem('te_spin_reset_week');
-    const thisWeek = getWeekStart(new Date()).toISOString();
-    if (lastReset !== thisWeek) {
-      setSpinDone({});
-      localStorage.setItem('te_spin_done', '{}');
-      localStorage.setItem('te_spin_reset_week', thisWeek);
-      // Also reset messaged
-      setMessaged({});
-      localStorage.setItem('te_messaged', '{}');
-    }
-  }, []);
-
   const fl = profiles.filter(p => {
     const s=q.toLowerCase();
     if (!s) return true;
@@ -851,22 +802,11 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
         {fl.map(p=>{
           const st = stips.find(s=>s.profile_id===p.id);
           const un = usernames[p.debtor_number];
-          const weeklyMin = parseFloat(p.weekly_payment) || parseFloat(st?.weekly_payment) || 0;
-          const weekPaid = activity ? calcWeeklyPaid(p.id, activity.filter(a=>a.profile_id===p.id).map(a=>({...a,profile_id:p.id}))) : 0;
-          const paidFull = weeklyMin > 0 && weekPaid >= weeklyMin;
-          // Overdue check: last payment > 7 days ago
-          const lastPay = activity ? activity.find(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment')) : null;
-          const daysSince = lastPay ? (Date.now() - new Date(lastPay.created_at).getTime()) / (1000*60*60*24) : 999;
-          const isOverdue = daysSince > 7 && !paidFull;
-          const borderColor = paidFull ? 'rgba(76,175,80,0.5)' : (isOverdue ? 'rgba(231,76,60,0.4)' : 'var(--border)');
-          const bgColor = paidFull ? 'rgba(76,175,80,0.04)' : (isOverdue ? 'rgba(231,76,60,0.04)' : 'var(--bg-card)');
           return (
-          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)} style={{borderColor:borderColor,background:bgColor}}>
+          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)}>
             <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>
-                {paidFull && '✅ '}{isOverdue && '🚨 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}
-              </div>
+              <div className="debtor-name">{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
               {!privacyMode && un && <div className="debtor-username">@{un}</div>}
               <div className="debtor-meta">
                 {!privacyMode && <span>{p.debtor_number}</span>}
@@ -879,21 +819,9 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
                   {st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}
                 </div>
               )}
-              {/* Checklist row */}
-              <div style={{display:'flex',gap:'12px',marginTop:'6px',fontSize:'11px'}}>
-                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: messaged[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
-                  <input type="checkbox" checked={!!messaged[p.id]} onChange={e=>toggleMessaged(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
-                  📨 Messaged
-                </label>
-                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: spinDone[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
-                  <input type="checkbox" checked={!!spinDone[p.id]} onChange={e=>toggleSpin(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
-                  🎡 Spin done
-                </label>
-                {weeklyMin > 0 && <span style={{color: paidFull ? 'var(--green)' : 'var(--text-muted)'}}>{fmt(weekPaid)}/{fmt(weeklyMin)}</span>}
-              </div>
             </div>
             <div>
-              <div className="debtor-balance" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--gold)')}}>{fmt(p.current_balance)}</div>
+              <div className="debtor-balance">{fmt(p.current_balance)}</div>
               {p.weekly_payment && <div className="debtor-weekly">{fmt(p.weekly_payment)}/wk</div>}
             </div>
           </div>
@@ -1396,8 +1324,8 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
             new_balance: parseFloat(nb) || 0,
             show_animation: true
           };
-          notifTitle = '🎡 The Empress Spun Your Wheel';
-          notifMsg = `Your interest wheel has been spun... Watch to see your fate. 😈`;
+          notifTitle = 'Interest Wheel Spun';
+          notifMsg = `The Empress spun your interest wheel. Result: ${pct}% — ${fmt(ca)} added to your balance. New balance: ${fmt(nb)}.`;
         }
  
         // Skip notification for interest wheel spins if toggle is off
@@ -2451,8 +2379,6 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
-
-  // Assign task form
   const [assignPid, setAssignPid] = useState('');
   const [assignTitle, setAssignTitle] = useState('');
   const [assignDesc, setAssignDesc] = useState('');
@@ -2479,24 +2405,13 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [bSendNotif, setBSendNotif] = useState(true);
   const [bFiningAll, setBFiningAll] = useState(false);
   const [bFineOk, setBFineOk] = useState('');
+  const [showEndedTasks, setShowEndedTasks] = useState(false);
 
-  const loadBulkTasks = async () => {
-    setBulkLd(true);
-    try { const t = await getBulkTasks(); setBulkTasks(t || []); } catch(e) { console.error(e); }
-    setBulkLd(false);
-  };
+  const loadBulkTasks = async () => { setBulkLd(true); try { const t = await getBulkTasks(); setBulkTasks(t || []); } catch(e) { console.error(e); } setBulkLd(false); };
   useEffect(() => { if (tab === 'bulk') loadBulkTasks(); }, [tab]);
 
-  const openBulkTask = async (task) => {
-    setSelBulkTask(task); setBulkView('detail'); setBFineOk('');
-    try { const a = await getBulkAssignments(task.id); setBulkAssignments(a || []); } catch(e) { console.error(e); setBulkAssignments([]); }
-  };
-
-  const startBulkCreate = () => {
-    setBulkView('create'); setBTitle(''); setBDesc(''); setBDeadline(''); setBFineAmt(''); setBOk(''); setBErr('');
-    const sel = {}; profiles.forEach(p => { if (p.is_active !== false) sel[p.id] = true; }); setBSelected(sel);
-  };
-
+  const openBulkTask = async (task) => { setSelBulkTask(task); setBulkView('detail'); setBFineOk(''); try { const a = await getBulkAssignments(task.id); setBulkAssignments(a || []); } catch(e) { console.error(e); setBulkAssignments([]); } };
+  const startBulkCreate = () => { setBulkView('create'); setBTitle(''); setBDesc(''); setBDeadline(''); setBFineAmt(''); setBOk(''); setBErr(''); const sel = {}; profiles.forEach(p => { if (p.is_active !== false) sel[p.id] = true; }); setBSelected(sel); };
   const toggleBDebtor = (id) => setBSelected({...bSelected, [id]: !bSelected[id]});
   const bSelectAll = () => { const sel = {}; profiles.forEach(p => { sel[p.id] = true; }); setBSelected(sel); };
   const bSelectNone = () => setBSelected({});
@@ -2516,24 +2431,19 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
         await sf('/rest/v1/notifications', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(notifs) });
       }
       setBOk(`✅ Task assigned to ${selectedIds.length} debtors${bSendNotif ? ' + notifications sent' : ''}`);
-      await loadBulkTasks();
-      setTimeout(() => { setBulkView('list'); setBOk(''); }, 2000);
+      await loadBulkTasks(); setTimeout(() => { setBulkView('list'); setBOk(''); }, 2000);
     } catch(e) { setBErr('Error: ' + e.message); }
     setBSaving(false);
   };
 
-  const markBCompleted = async (assignId) => {
-    try {
-      await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString() }) });
-      setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'completed', completed_at: new Date().toISOString()} : a));
-    } catch(e) { console.error(e); }
-  };
+  const markBCompleted = async (assignId) => { try { await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString() }) }); setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'completed', completed_at: new Date().toISOString()} : a)); } catch(e) { console.error(e); } };
+  const markBAssigned = async (assignId) => { try { await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'assigned', completed_at: null }) }); setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'assigned', completed_at: null} : a)); } catch(e) { console.error(e); } };
 
-  const markBAssigned = async (assignId) => {
+  const endBulkTask = async (taskId) => {
     try {
-      await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'assigned', completed_at: null }) });
-      setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'assigned', completed_at: null} : a));
-    } catch(e) { console.error(e); }
+      await sf(`/rest/v1/bulk_tasks?id=eq.${taskId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ is_active: false }) });
+      setBulkView('list'); setSelBulkTask(null); await loadBulkTasks();
+    } catch(e) { setBFineOk('Error: ' + e.message); }
   };
 
   const bulkFine = async () => {
@@ -2545,9 +2455,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
     let count = 0;
     try {
       for (const a of incomplete) {
-        const bal = parseFloat(a.profiles?.current_balance) || 0;
-        const nb = bal + fAmt;
-        const now = new Date().toISOString();
+        const bal = parseFloat(a.profiles?.current_balance) || 0; const nb = bal + fAmt; const now = new Date().toISOString();
         const maxRowRes = await sf(`/rest/v1/ledger?profile_id=eq.${a.profile_id}&select=row_order&order=row_order.desc&limit=1`);
         const nextRow = (maxRowRes && maxRowRes[0] ? (maxRowRes[0].row_order || 0) + 1 : 1);
         await insertLedger({ profile_id: a.profile_id, entry_type: 'Fine', entry_date: now, amount: fAmt, balance_after: nb, description: `Task fine: ${selBulkTask.title}`, admin_fee: 0, created_at: now, tokens_awarded: 0, row_order: nextRow });
@@ -2557,9 +2465,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
         count++;
       }
       setBFineOk(`✅ Fined ${count} debtors £${fAmt} each.`);
-      const updated = await getBulkAssignments(selBulkTask.id);
-      setBulkAssignments(updated || []);
-      onDone?.();
+      const updated = await getBulkAssignments(selBulkTask.id); setBulkAssignments(updated || []); onDone?.();
     } catch(e) { setBFineOk('Error: ' + e.message); }
     setBFiningAll(false);
   };
@@ -2726,18 +2632,23 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
       {/* === BULK ASSIGN TAB === */}
       {tab === 'bulk' && bulkView === 'list' && (
         <div>
-          <button className="btn" onClick={startBulkCreate} style={{width:'100%',marginBottom:'20px'}}>+ Assign New Bulk Task</button>
+          <button className="btn" onClick={startBulkCreate} style={{width:'100%',marginBottom:'12px'}}>+ Assign New Bulk Task</button>
+          <label className="cb-row" style={{marginBottom:'12px',padding:'8px 12px'}}>
+            <input type="checkbox" checked={showEndedTasks} onChange={e=>setShowEndedTasks(e.target.checked)} />
+            <span style={{fontSize:'13px'}}>Show ended tasks</span>
+          </label>
           {bulkLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
-            bulkTasks.length === 0 ? <div className="empty-state">No bulk tasks assigned yet</div> :
+            bulkTasks.filter(t => showEndedTasks || t.is_active !== false).length === 0 ? <div className="empty-state">No bulk tasks assigned yet</div> :
             <div className="feed-list">
-              {bulkTasks.map(t => {
+              {bulkTasks.filter(t => showEndedTasks || t.is_active !== false).map(t => {
                 const dl = t.deadline ? new Date(t.deadline) : null;
                 const overdue = dl && dl < new Date();
+                const ended = t.is_active === false;
                 return (
-                  <div className="feed-item" key={t.id} onClick={() => openBulkTask(t)}>
-                    <div className={`feed-icon ${overdue ? 'fi-fine' : 'fi-pay'}`}>{overdue ? '⏰' : '📋'}</div>
+                  <div className="feed-item" key={t.id} onClick={() => openBulkTask(t)} style={{opacity: ended ? 0.5 : 1}}>
+                    <div className={`feed-icon ${ended ? 'fi-fee' : (overdue ? 'fi-fine' : 'fi-pay')}`}>{ended ? '🏁' : (overdue ? '⏰' : '📋')}</div>
                     <div className="feed-body">
-                      <div className="feed-text"><strong>{t.title}</strong></div>
+                      <div className="feed-text"><strong>{t.title}</strong>{ended && <span style={{color:'var(--text-muted)',fontSize:'11px',marginLeft:'8px'}}>ENDED</span>}</div>
                       <div className="feed-time">{dl ? `Deadline: ${fmtD(t.deadline)}${overdue ? ' — OVERDUE' : ''}` : 'No deadline'}{t.fine_amount > 0 && ` · Fine: ${fmt(t.fine_amount)}`}</div>
                     </div>
                     <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
@@ -2791,10 +2702,16 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
         const bFined = bulkAssignments.filter(a => a.status === 'fined');
         const dl = selBulkTask.deadline ? new Date(selBulkTask.deadline) : null;
         const overdue = dl && dl < new Date();
+        const isEnded = selBulkTask.is_active === false;
         return (
           <div>
             <button className="back-btn" onClick={() => { setBulkView('list'); setSelBulkTask(null); }}>← Back</button>
-            <div style={{fontSize:'18px',fontWeight:600,color:'var(--gold)',fontFamily:'Cormorant Garamond, serif',marginBottom:'8px'}}>{selBulkTask.title}</div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+              <div style={{fontSize:'18px',fontWeight:600,color: isEnded ? 'var(--text-dim)' : 'var(--gold)',fontFamily:'Cormorant Garamond, serif'}}>{selBulkTask.title}{isEnded && <span style={{fontSize:'12px',color:'var(--text-muted)',marginLeft:'8px',fontFamily:'DM Sans, sans-serif'}}>ENDED</span>}</div>
+              {!isEnded && (
+                <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{if(!confirm('End this task? It will be marked as inactive.')) return;await endBulkTask(selBulkTask.id);setSelBulkTask({...selBulkTask, is_active:false});await loadBulkTasks();}}>🏁 End Task</button>
+              )}
+            </div>
             {selBulkTask.description && <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'16px',lineHeight:1.6}}>{selBulkTask.description}</div>}
             <div className="stats-grid" style={{marginBottom:'16px'}}>
               <div className="stat-card"><div className="stat-label">Assigned</div><div className="stat-value sm" style={{color:'var(--text)'}}>{bAssigned.length}</div></div>
@@ -2802,7 +2719,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
               {dl && <div className="stat-card"><div className="stat-label">Deadline</div><div className="stat-value sm" style={{fontSize:'14px',color: overdue ? 'var(--red)' : 'var(--text-dim)'}}>{fmtD(selBulkTask.deadline)}{overdue ? ' ⏰' : ''}</div></div>}
               {selBulkTask.fine_amount > 0 && <div className="stat-card"><div className="stat-label">Fine Amount</div><div className="stat-value sm" style={{color:'var(--red)'}}>{fmt(selBulkTask.fine_amount)}</div></div>}
             </div>
-            {bAssigned.length > 0 && selBulkTask.fine_amount > 0 && (
+            {!isEnded && bAssigned.length > 0 && selBulkTask.fine_amount > 0 && (
               <div style={{marginBottom:'16px'}}><button className="btn btn-danger" onClick={bulkFine} disabled={bFiningAll} style={{width:'100%'}}>{bFiningAll ? <span className="spinner"/> : `⚠️ Fine ${bAssigned.length} Incomplete — ${fmt(selBulkTask.fine_amount)} each`}</button></div>
             )}
             {bFineOk && <div className={bFineOk.startsWith('✅') ? 'success-msg' : 'error-msg'} style={{marginBottom:'12px'}}>{bFineOk}</div>}
@@ -2812,7 +2729,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
                 {bAssigned.map(a => (
                   <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
                     <div><div style={{fontSize:'13px',fontWeight:600}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>{!privacyMode && a.profiles?.username && <div style={{fontSize:'11px',color:'var(--text-muted)',fontStyle:'italic'}}>@{a.profiles.username}</div>}</div>
-                    <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={() => markBCompleted(a.id)}>✓ Done</button>
+                    {!isEnded && <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={() => markBCompleted(a.id)}>✓ Done</button>}
                   </div>
                 ))}
               </div>
@@ -2823,7 +2740,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
                 {bCompleted.map(a => (
                   <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'rgba(76,175,80,0.05)',border:'1px solid rgba(76,175,80,0.2)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
                     <div><div style={{fontSize:'13px',fontWeight:600,color:'var(--green)'}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>{a.completed_at && <div style={{fontSize:'10px',color:'var(--text-muted)'}}>{fmtD(a.completed_at)}</div>}</div>
-                    <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'10px'}} onClick={() => markBAssigned(a.id)}>Undo</button>
+                    {!isEnded && <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'10px'}} onClick={() => markBAssigned(a.id)}>Undo</button>}
                   </div>
                 ))}
               </div>
@@ -3304,6 +3221,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       <header className="header">
         <div className="header-brand"><span className="header-crown">👑</span><span className="header-title">Truee Empire</span></div>
         <div className="header-actions">
+          <button className="header-btn" onClick={()=>{load();}} title="Refresh data" style={{fontSize:'16px'}}>🔄</button>
           <button className={`header-btn ${privacyMode?'active':''}`} onClick={()=>setPrivacyMode(!privacyMode)} title={privacyMode?'Show names':'Hide names'}>
             {privacyMode ? '🙈' : '👁'}
           </button>
@@ -3313,7 +3231,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       {dl&&profs.length===0 ? <div className="loading-screen" style={{minHeight:'60vh'}}><div className="spinner"/><span>Loading empire data...</span></div> : <>
         {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} alertPrefs={alertPrefs} onDismiss={dismissAlert} onTogglePref={toggleAlertPref} />}
         {pg==='leaderboard'&&<AdminLeaderboard leaderboardData={lbData} profiles={profs} privacyMode={privacyMode} onView={vd} onRefresh={load} />}
-        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} activity={act} />}
+        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
@@ -3350,6 +3268,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
           <span className="nav-icon">🏪</span><span className="nav-label">Items</span>
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
+        <button className={`nav-item ${pg==='tasks'?'active':''}`} onClick={()=>setPg('tasks')}><span className="nav-icon">📋</span><span className="nav-label">Tasks</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
