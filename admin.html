@@ -1071,6 +1071,60 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         </div>
       )}
       {tab==='contract'&&!st&&<div className="empty-state">No contract data</div>}
+
+      {/* === OFFBOARD DEBTOR === */}
+      <OffboardSection profile={pr} onDone={onBack} />
+    </div>
+  );
+}
+
+// ========== OFFBOARD DEBTOR ==========
+function OffboardSection({ profile, onDone }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [ld, setLd] = useState(false);
+  const [ok, setOk] = useState('');
+  const [err, setErr] = useState('');
+
+  if (!profile) return null;
+
+  const doOffboard = async () => {
+    if (confirmText !== profile.debtor_number) { setErr('Type the debtor number exactly to confirm'); return; }
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await sf('/rest/v1/rpc/admin_offboard_debtor', { method: 'POST', body: JSON.stringify({ p_profile_id: profile.id }) });
+      if (result?.error) { setErr(result.error); }
+      else { setOk(`✅ ${profile.display_name} (${profile.debtor_number}) has been offboarded. Profile archived and marked inactive.`); setTimeout(() => onDone?.(), 3000); }
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  return (
+    <div style={{marginTop:'32px',borderTop:'1px solid rgba(231,76,60,0.2)',paddingTop:'24px'}}>
+      {!showConfirm ? (
+        <button className="btn btn-outline" onClick={()=>setShowConfirm(true)} style={{width:'100%',borderColor:'rgba(231,76,60,0.3)',color:'var(--red)'}}>
+          🚪 Offboard This Debtor
+        </button>
+      ) : (
+        <div style={{background:'rgba(231,76,60,0.06)',border:'1px solid rgba(231,76,60,0.3)',borderRadius:'var(--radius)',padding:'20px'}}>
+          <div style={{fontSize:'14px',fontWeight:600,color:'var(--red)',marginBottom:'8px'}}>⚠️ Offboard {profile.display_name}?</div>
+          <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'16px'}}>
+            This will archive their profile, mark them inactive, clear personal info, delete pending notifications/tasks/orders, and remove them from the Wix portal. This cannot be undone.
+          </div>
+          <div className="form-group">
+            <label className="form-label">Type "{profile.debtor_number}" to confirm</label>
+            <input className="fi" value={confirmText} onChange={e=>setConfirmText(e.target.value)} placeholder={profile.debtor_number} />
+          </div>
+          {err && <div className="error-msg" style={{marginBottom:'12px'}}>{err}</div>}
+          {ok && <div className="success-msg" style={{marginBottom:'12px'}}>{ok}</div>}
+          <div style={{display:'flex',gap:'8px'}}>
+            <button className="btn btn-danger" onClick={doOffboard} disabled={ld||confirmText!==profile.debtor_number} style={{flex:1}}>
+              {ld ? <span className="spinner"/> : '🚪 Confirm Offboard'}
+            </button>
+            <button className="btn btn-outline" onClick={()=>{setShowConfirm(false);setConfirmText('');setErr('');}} style={{flex:1}}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
