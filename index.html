@@ -1800,9 +1800,9 @@ async function renderHomeActiveTasks() {
         if (endDate) tHtml += ' · Ends ' + endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
         tHtml += '</div>';
 
-        // Check-in button
+        // Check-in button - link to tasks tab instead of duplicating
         if (!checkedInToday && daysCompleted < daysTotal) {
-          tHtml += '<button class="login-btn" style="width:100%;padding:10px;font-size:12px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\');setTimeout(renderHomeActiveTasks,1000);">📝 Check in for today</button>';
+          tHtml += '<button class="login-btn" style="width:100%;padding:10px;font-size:12px;margin:0;" onclick="switchTab(document.querySelector(\'[data-tab=tasks]\'));loadOngoingTasks();">📝 Go to Tasks to Check In</button>';
         } else if (checkedInToday) {
           tHtml += '<div style="text-align:center;padding:8px;background:rgba(92,184,122,0.1);border:1px solid rgba(92,184,122,0.3);border-radius:8px;font-size:12px;color:var(--te-green);font-weight:600;">✅ Checked in today</div>';
         }
