@@ -2261,6 +2261,44 @@ async function loadOngoingTasks() {
       }
       html += '</div>';
       
+      // ===== SACRIFICE LEDGER: Day 7 / Day 14 DM report prompt =====
+      if (t.item_type === 'sacrifice_ledger') {
+        // Week 1 report (Day 7)
+        if (daysCompleted >= 7 && !t.report_sent_day_7) {
+          var week1Total = 0;
+          for (var w1 = 0; w1 < Math.min(7, log.length); w1++) {
+            week1Total += parseFloat(log[w1].amount_saved) || 0;
+          }
+          html += '<div style="background:rgba(201,168,76,0.08);border:2px solid var(--te-gold);border-radius:10px;padding:16px;margin-bottom:14px;">';
+          html += '<div style="font-size:14px;font-weight:700;color:var(--te-gold);text-align:center;margin-bottom:8px;">📬 Week 1 Report Due</div>';
+          html += '<div style="font-size:12px;color:var(--te-text);line-height:1.6;margin-bottom:10px;text-align:center;">You have reached <strong>Day 7</strong>. DM <strong>Miss Sophia Truee on LoyalFans</strong> with your Week 1 report.</div>';
+          html += '<div style="background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;padding:10px;margin-bottom:10px;text-align:center;">';
+          html += '<div style="font-size:11px;color:var(--te-text-dim);margin-bottom:2px;">Your Week 1 total</div>';
+          html += '<div style="font-size:18px;font-weight:700;color:var(--te-gold);">£' + week1Total.toFixed(2) + '</div>';
+          html += '</div>';
+          html += '<div style="font-size:11px;color:var(--te-text-dim);line-height:1.5;margin-bottom:12px;">Include: total saved, what you sacrificed, what you learned. The Empress is watching.</div>';
+          html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="markReportSent(\'' + t.id + '\', 7)">✓ I have sent my Week 1 report</button>';
+          html += '</div>';
+        }
+        // Week 2 report (Day 14 — final)
+        if (daysCompleted >= 14 && !t.report_sent_day_14) {
+          var week2Total = 0;
+          for (var w2 = 7; w2 < Math.min(14, log.length); w2++) {
+            week2Total += parseFloat(log[w2].amount_saved) || 0;
+          }
+          html += '<div style="background:rgba(201,168,76,0.08);border:2px solid var(--te-gold);border-radius:10px;padding:16px;margin-bottom:14px;">';
+          html += '<div style="font-size:14px;font-weight:700;color:var(--te-gold);text-align:center;margin-bottom:8px;">📬 Final Report Due</div>';
+          html += '<div style="font-size:12px;color:var(--te-text);line-height:1.6;margin-bottom:10px;text-align:center;">You have reached <strong>Day 14</strong>. DM <strong>Miss Sophia Truee on LoyalFans</strong> with your final report.</div>';
+          html += '<div style="background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;padding:10px;margin-bottom:10px;text-align:center;">';
+          html += '<div style="font-size:11px;color:var(--te-text-dim);margin-bottom:2px;">Your Week 2 total</div>';
+          html += '<div style="font-size:18px;font-weight:700;color:var(--te-gold);">£' + week2Total.toFixed(2) + '</div>';
+          html += '</div>';
+          html += '<div style="font-size:11px;color:var(--te-text-dim);line-height:1.5;margin-bottom:12px;">Include: Week 2 total, what you sacrificed, how the challenge has changed you. Completion unlocks the next step.</div>';
+          html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="markReportSent(\'' + t.id + '\', 14)">✓ I have sent my final report</button>';
+          html += '</div>';
+        }
+      }
+
       // Check-in button
       if (!checkedInToday && daysCompleted < daysTotal && !overdue) {
         html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\', \'' + (t.item_type || 'custom_task') + '\')">📝 Check In for Today</button>';
@@ -2324,6 +2362,17 @@ async function submitSacrificeReport(orderId) {
     document.getElementById('slCheckinForm').remove();
     await loadOngoingTasks();
     renderHomeActiveTasks();
+  } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
+}
+
+async function markReportSent(orderId, dayNum) {
+  var weekLabel = dayNum === 7 ? 'Week 1' : 'final';
+  if (!confirm('Confirm you have sent your ' + weekLabel + ' report to Miss Sophia Truee on LoyalFans?')) return;
+  try {
+    var updateField = dayNum === 7 ? { report_sent_day_7: new Date().toISOString() } : { report_sent_day_14: new Date().toISOString() };
+    var result = await sb.from('shop_orders').update(updateField).eq('id', orderId);
+    if (result.error) throw result.error;
+    await loadOngoingTasks();
   } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
 }
 
