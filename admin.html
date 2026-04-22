@@ -2953,13 +2953,14 @@ function ShopOrders({ orders, onDone, privacyMode }) {
     'fine_shield': '🔰 Fine Shield',
     'task_shield': '🚫 Task Shield',
     'custom_task': '🎯 Custom Task',
+    'sacrifice_ledger': '📖 The Sacrifice Ledger',
     'reward_1st': '🏆 1st Place Reward',
     'reward_2nd': '🥈 2nd Place Reward',
     'reward_3rd': '🥉 3rd Place Reward'
   };
 
   const isShield = (type) => ['interest_shield','fine_shield','task_shield'].includes(type);
-  const isTask = (type) => ['lines','custom_task'].includes(type);
+  const isTask = (type) => ['lines','custom_task','sacrifice_ledger'].includes(type);
 
   const loadActiveTasks = async () => {
     setTaskLd(true);
