@@ -1534,6 +1534,7 @@ function renderShopOrders() {
     'fine_shield': '🔰 Fine Shield',
     'task_shield': '🚫 Task Shield',
     'custom_task': '🎯 Custom Task',
+    'sacrifice_ledger': '📖 The Sacrifice Ledger',
     'empress_voicenote': '🎧 Empress Voice Note',
     'dm_session': '💌 Private DM Session',
     'custom_wallpaper': '🖼️ Custom Wallpaper',
@@ -2253,11 +2254,16 @@ async function loadOngoingTasks() {
       html += '<div style="font-size:12px;color:var(--te-text-dim);margin-bottom:12px;text-align:center;">';
       html += daysCompleted + ' / ' + daysTotal + ' days completed';
       if (endDate) html += ' · Ends ' + endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      // Show total saved for Sacrifice Ledger
+      if (t.item_type === 'sacrifice_ledger' && log.length > 0) {
+        var totalSaved = log.reduce(function(sum, entry) { return sum + (parseFloat(entry.amount_saved) || 0); }, 0);
+        if (totalSaved > 0) html += '<br><span style="color:var(--te-gold);font-weight:600;">💰 £' + totalSaved.toFixed(2) + ' total sacrificed</span>';
+      }
       html += '</div>';
       
       // Check-in button
       if (!checkedInToday && daysCompleted < daysTotal && !overdue) {
-        html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\')">📝 Check In for Today</button>';
+        html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\', \'' + (t.item_type || 'custom_task') + '\')">📝 Check In for Today</button>';
       } else if (checkedInToday) {
         html += '<div style="text-align:center;padding:10px;background:rgba(92,184,122,0.1);border:1px solid rgba(92,184,122,0.3);border-radius:8px;font-size:13px;color:var(--te-green);font-weight:600;">✅ Checked in for today — awaiting approval</div>';
       } else if (overdue) {
@@ -2273,13 +2279,51 @@ async function loadOngoingTasks() {
   }
 }
 
-async function taskCheckIn(orderId) {
+async function taskCheckIn(orderId, itemType) {
+  if (itemType === 'sacrifice_ledger') {
+    // Show a rich check-in form for Sacrifice Ledger
+    var formHtml = '<div id="slCheckinForm" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">';
+    formHtml += '<div style="background:var(--te-surface);border:1px solid var(--te-gold-border);border-radius:12px;padding:24px;max-width:400px;width:100%;">';
+    formHtml += '<div style="font-size:18px;font-weight:600;color:var(--te-gold);text-align:center;margin-bottom:4px;">📖 Daily Sacrifice Report</div>';
+    formHtml += '<div style="font-size:12px;color:var(--te-text-dim);text-align:center;margin-bottom:20px;">Report your sacrifice to the Empress.</div>';
+    formHtml += '<div style="margin-bottom:14px;"><label style="font-size:12px;color:var(--te-text-dim);display:block;margin-bottom:4px;">Amount saved today (£)</label>';
+    formHtml += '<input type="number" id="slAmount" min="5" step="0.01" placeholder="Minimum £5" style="width:100%;padding:12px;background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;color:var(--te-text);font-size:15px;font-family:inherit;" /></div>';
+    formHtml += '<div style="margin-bottom:14px;"><label style="font-size:12px;color:var(--te-text-dim);display:block;margin-bottom:4px;">What did you sacrifice?</label>';
+    formHtml += '<textarea id="slSacrifice" rows="3" placeholder="e.g. Skipped coffee, brought lunch from home, cancelled subscription..." style="width:100%;padding:12px;background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;color:var(--te-text);font-size:14px;font-family:inherit;resize:vertical;"></textarea></div>';
+    formHtml += '<div style="margin-bottom:16px;"><label style="font-size:12px;color:var(--te-text-dim);display:block;margin-bottom:4px;">How does this serve the Truee Empire?</label>';
+    formHtml += '<textarea id="slPurpose" rows="2" placeholder="Why this sacrifice matters..." style="width:100%;padding:12px;background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;color:var(--te-text);font-size:14px;font-family:inherit;resize:vertical;"></textarea></div>';
+    formHtml += '<div style="display:flex;gap:8px;">';
+    formHtml += '<button onclick="submitSacrificeReport(\'' + orderId + '\')" style="flex:1;padding:12px;background:var(--te-gold);color:#0a0a0a;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">📝 Submit Report</button>';
+    formHtml += '<button onclick="document.getElementById(\'slCheckinForm\').remove()" style="flex:0.5;padding:12px;background:transparent;color:var(--te-text-dim);border:1px solid var(--te-border);border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit;">Cancel</button>';
+    formHtml += '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', formHtml);
+    return;
+  }
+  // Standard check-in for other task types
   try {
     var result = await sb.rpc('debtor_task_checkin', { p_order_id: orderId, p_note: '' });
     if (result.error) throw result.error;
     var data = result.data;
     if (data.error) { alert(data.error); return; }
     await loadOngoingTasks();
+  } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
+}
+
+async function submitSacrificeReport(orderId) {
+  var amount = parseFloat(document.getElementById('slAmount').value) || 0;
+  var sacrifice = document.getElementById('slSacrifice').value.trim();
+  var purpose = document.getElementById('slPurpose').value.trim();
+  if (amount < 5) { alert('Minimum £5 per day. If you truly sacrificed nothing, add £5 as a lazy day tax.'); return; }
+  if (!sacrifice) { alert('You must describe what you sacrificed.'); return; }
+  var note = '£' + amount.toFixed(2) + ' saved | ' + sacrifice + (purpose ? ' | Purpose: ' + purpose : '');
+  try {
+    var result = await sb.rpc('debtor_task_checkin', { p_order_id: orderId, p_note: note, p_amount_saved: amount });
+    if (result.error) throw result.error;
+    var data = result.data;
+    if (data.error) { alert(data.error); return; }
+    document.getElementById('slCheckinForm').remove();
+    await loadOngoingTasks();
+    renderHomeActiveTasks();
   } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
 }
 
