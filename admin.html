@@ -819,8 +819,56 @@ function Dashboard({ profiles, activity, onView, alerts, privacyMode, alertPrefs
   );
 }
 
-function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
+function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity }) {
   const [q, setQ] = useState('');
+  const [messaged, setMessaged] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('te_messaged') || '{}'); } catch { return {}; }
+  });
+  const [spinDone, setSpinDone] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('te_spin_done') || '{}'); } catch { return {}; }
+  });
+
+  const toggleMessaged = (e, id) => {
+    e.stopPropagation();
+    const nxt = {...messaged, [id]: !messaged[id]};
+    setMessaged(nxt);
+    localStorage.setItem('te_messaged', JSON.stringify(nxt));
+  };
+  const toggleSpin = (e, id) => {
+    e.stopPropagation();
+    const nxt = {...spinDone, [id]: !spinDone[id]};
+    setSpinDone(nxt);
+    localStorage.setItem('te_spin_done', JSON.stringify(nxt));
+  };
+
+  // Reset messaged flags if a payment was logged this week for that debtor
+  useEffect(() => {
+    if (!activity || activity.length === 0) return;
+    const weekStart = getWeekStart(new Date());
+    const updated = {...messaged};
+    let changed = false;
+    profiles.forEach(p => {
+      if (messaged[p.id]) {
+        const hasPay = activity.some(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment') && new Date(a.created_at) >= weekStart);
+        if (hasPay) { updated[p.id] = false; changed = true; }
+      }
+    });
+    if (changed) { setMessaged(updated); localStorage.setItem('te_messaged', JSON.stringify(updated)); }
+  }, [activity, profiles]);
+
+  // Reset spin flags on Sunday (new week)
+  useEffect(() => {
+    const lastReset = localStorage.getItem('te_spin_reset_week');
+    const thisWeek = getWeekStart(new Date()).toISOString();
+    if (lastReset !== thisWeek) {
+      setSpinDone({});
+      localStorage.setItem('te_spin_done', '{}');
+      localStorage.setItem('te_spin_reset_week', thisWeek);
+      setMessaged({});
+      localStorage.setItem('te_messaged', '{}');
+    }
+  }, []);
+
   const fl = profiles.filter(p => {
     const s=q.toLowerCase();
     if (!s) return true;
@@ -835,11 +883,21 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
         {fl.map(p=>{
           const st = stips.find(s=>s.profile_id===p.id);
           const un = usernames[p.debtor_number];
+          const weeklyMin = parseFloat(p.weekly_payment) || parseFloat(st?.weekly_payment) || 0;
+          const weekPaid = activity ? calcWeeklyPaid(p.id, activity.filter(a=>a.profile_id===p.id).map(a=>({...a,profile_id:p.id}))) : 0;
+          const paidFull = weeklyMin > 0 && weekPaid >= weeklyMin;
+          const lastPay = activity ? activity.find(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment')) : null;
+          const daysSince = lastPay ? (Date.now() - new Date(lastPay.created_at).getTime()) / (1000*60*60*24) : 999;
+          const isOverdue = daysSince > 7 && !paidFull;
+          const borderColor = paidFull ? 'rgba(76,175,80,0.5)' : (isOverdue ? 'rgba(231,76,60,0.4)' : 'var(--border)');
+          const bgColor = paidFull ? 'rgba(76,175,80,0.04)' : (isOverdue ? 'rgba(231,76,60,0.04)' : 'var(--bg-card)');
           return (
-          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)}>
+          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)} style={{borderColor:borderColor,background:bgColor}}>
             <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name">{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
+              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>
+                {paidFull && '✅ '}{isOverdue && '🚨 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}
+              </div>
               {!privacyMode && un && <div className="debtor-username">@{un}</div>}
               <div className="debtor-meta">
                 {!privacyMode && <span>{p.debtor_number}</span>}
@@ -852,9 +910,21 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
                   {st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}
                 </div>
               )}
+              {/* Checklist row */}
+              <div style={{display:'flex',gap:'12px',marginTop:'6px',fontSize:'11px'}}>
+                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: messaged[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
+                  <input type="checkbox" checked={!!messaged[p.id]} onChange={e=>toggleMessaged(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
+                  📨 Messaged
+                </label>
+                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: spinDone[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
+                  <input type="checkbox" checked={!!spinDone[p.id]} onChange={e=>toggleSpin(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
+                  🎡 Spin done
+                </label>
+                {weeklyMin > 0 && <span style={{color: paidFull ? 'var(--green)' : 'var(--text-muted)'}}>{fmt(weekPaid)}/{fmt(weeklyMin)}</span>}
+              </div>
             </div>
             <div>
-              <div className="debtor-balance">{fmt(p.current_balance)}</div>
+              <div className="debtor-balance" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--gold)')}}>{fmt(p.current_balance)}</div>
               {p.weekly_payment && <div className="debtor-weekly">{fmt(p.weekly_payment)}/wk</div>}
             </div>
           </div>
@@ -3430,7 +3500,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       {dl&&profs.length===0 ? <div className="loading-screen" style={{minHeight:'60vh'}}><div className="spinner"/><span>Loading empire data...</span></div> : <>
         {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} alertPrefs={alertPrefs} onDismiss={dismissAlert} onTogglePref={toggleAlertPref} />}
         {pg==='leaderboard'&&<AdminLeaderboard leaderboardData={lbData} profiles={profs} privacyMode={privacyMode} onView={vd} onRefresh={load} />}
-        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
+        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} activity={act} />}
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
