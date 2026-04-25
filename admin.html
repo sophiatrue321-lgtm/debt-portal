@@ -463,40 +463,7 @@ function fmtD(d) { return d ? new Date(d).toLocaleDateString('en-GB', { day: 'nu
 function ago(d) { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s<60) return 'Just now'; if (s<3600) return `${Math.floor(s/60)}m ago`; if (s<86400) return `${Math.floor(s/3600)}h ago`; if (s<604800) return `${Math.floor(s/86400)}d ago`; return fmtD(d); }
 function tc(t) { if (!t) return ''; const l=t.toLowerCase(); if (l.includes('diamond')) return 't-diamond'; if (l.includes('platinum')) return 't-platinum'; if (l.includes('gold')) return 't-gold'; if (l.includes('silver')) return 't-silver'; return 't-bronze'; }
 function ini(n) { return n ? n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '?'; }
-function calcTok(amt, wp, streak, priorWeeklyPaid) {
-  if (amt<=0) return 0;
-  const m = streak >= 4 ? 1.5 : 1;
-  const prior = priorWeeklyPaid || 0;
-  const newTotal = prior + amt;
-  
-  if (!wp || wp <= 0) {
-    // No weekly minimum — all at base rate
-    return Math.floor(Math.floor(amt / 1.5) * m);
-  }
-  
-  if (newTotal <= wp) {
-    // Still under weekly minimum — all at base rate
-    return Math.floor(Math.floor(amt / 1.5) * m);
-  }
-  
-  // Some or all of this payment is above minimum
-  const alreadyOverMin = prior >= wp;
-  let normalPart, overPart;
-  
-  if (alreadyOverMin) {
-    // Entire payment is overpayment (weekly min already met in prior payments)
-    normalPart = 0;
-    overPart = amt;
-  } else {
-    // Part normal, part overpayment
-    normalPart = wp - prior;
-    overPart = amt - normalPart;
-  }
-  
-  const normalTokens = Math.floor(normalPart / 1.5);
-  const overTokens = Math.floor(overPart / 1.5) * 2;
-  return Math.floor((normalTokens + overTokens) * m);
-}
+function calcTok(amt, wp, streak) { if (amt<=0) return 0; const b=Math.floor(amt/1.5); const m=streak>=4?1.5:1; let t=Math.floor(b*m); if (wp&&amt>wp) { const ex=amt-wp; const bb=Math.floor(ex/1.5); t+=Math.floor((Math.floor(bb*2)-bb)*m); } return t; }
   // ========== WEEK HELPERS ==========
 function getWeekStart(date) {
   const d = new Date(date);
@@ -819,56 +786,8 @@ function Dashboard({ profiles, activity, onView, alerts, privacyMode, alertPrefs
   );
 }
 
-function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity }) {
+function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
   const [q, setQ] = useState('');
-  const [messaged, setMessaged] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('te_messaged') || '{}'); } catch { return {}; }
-  });
-  const [spinDone, setSpinDone] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('te_spin_done') || '{}'); } catch { return {}; }
-  });
-
-  const toggleMessaged = (e, id) => {
-    e.stopPropagation();
-    const nxt = {...messaged, [id]: !messaged[id]};
-    setMessaged(nxt);
-    localStorage.setItem('te_messaged', JSON.stringify(nxt));
-  };
-  const toggleSpin = (e, id) => {
-    e.stopPropagation();
-    const nxt = {...spinDone, [id]: !spinDone[id]};
-    setSpinDone(nxt);
-    localStorage.setItem('te_spin_done', JSON.stringify(nxt));
-  };
-
-  // Reset messaged flags if a payment was logged this week for that debtor
-  useEffect(() => {
-    if (!activity || activity.length === 0) return;
-    const weekStart = getWeekStart(new Date());
-    const updated = {...messaged};
-    let changed = false;
-    profiles.forEach(p => {
-      if (messaged[p.id]) {
-        const hasPay = activity.some(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment') && new Date(a.created_at) >= weekStart);
-        if (hasPay) { updated[p.id] = false; changed = true; }
-      }
-    });
-    if (changed) { setMessaged(updated); localStorage.setItem('te_messaged', JSON.stringify(updated)); }
-  }, [activity, profiles]);
-
-  // Reset spin flags on Sunday (new week)
-  useEffect(() => {
-    const lastReset = localStorage.getItem('te_spin_reset_week');
-    const thisWeek = getWeekStart(new Date()).toISOString();
-    if (lastReset !== thisWeek) {
-      setSpinDone({});
-      localStorage.setItem('te_spin_done', '{}');
-      localStorage.setItem('te_spin_reset_week', thisWeek);
-      setMessaged({});
-      localStorage.setItem('te_messaged', '{}');
-    }
-  }, []);
-
   const fl = profiles.filter(p => {
     const s=q.toLowerCase();
     if (!s) return true;
@@ -883,21 +802,11 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
         {fl.map(p=>{
           const st = stips.find(s=>s.profile_id===p.id);
           const un = usernames[p.debtor_number];
-          const weeklyMin = parseFloat(p.weekly_payment) || parseFloat(st?.weekly_payment) || 0;
-          const weekPaid = activity ? calcWeeklyPaid(p.id, activity.filter(a=>a.profile_id===p.id).map(a=>({...a,profile_id:p.id}))) : 0;
-          const paidFull = weeklyMin > 0 && weekPaid >= weeklyMin;
-          const lastPay = activity ? activity.find(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment')) : null;
-          const daysSince = lastPay ? (Date.now() - new Date(lastPay.created_at).getTime()) / (1000*60*60*24) : 999;
-          const isOverdue = daysSince > 7 && !paidFull;
-          const borderColor = paidFull ? 'rgba(76,175,80,0.5)' : (isOverdue ? 'rgba(231,76,60,0.4)' : 'var(--border)');
-          const bgColor = paidFull ? 'rgba(76,175,80,0.04)' : (isOverdue ? 'rgba(231,76,60,0.04)' : 'var(--bg-card)');
           return (
-          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)} style={{borderColor:borderColor,background:bgColor}}>
+          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)}>
             <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>
-                {paidFull && '✅ '}{isOverdue && '🚨 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}
-              </div>
+              <div className="debtor-name">{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
               {!privacyMode && un && <div className="debtor-username">@{un}</div>}
               <div className="debtor-meta">
                 {!privacyMode && <span>{p.debtor_number}</span>}
@@ -910,21 +819,9 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
                   {st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}
                 </div>
               )}
-              {/* Checklist row */}
-              <div style={{display:'flex',gap:'12px',marginTop:'6px',fontSize:'11px'}}>
-                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: messaged[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
-                  <input type="checkbox" checked={!!messaged[p.id]} onChange={e=>toggleMessaged(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
-                  📨 Messaged
-                </label>
-                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: spinDone[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
-                  <input type="checkbox" checked={!!spinDone[p.id]} onChange={e=>toggleSpin(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
-                  🎡 Spin done
-                </label>
-                {weeklyMin > 0 && <span style={{color: paidFull ? 'var(--green)' : 'var(--text-muted)'}}>{fmt(weekPaid)}/{fmt(weeklyMin)}</span>}
-              </div>
             </div>
             <div>
-              <div className="debtor-balance" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--gold)')}}>{fmt(p.current_balance)}</div>
+              <div className="debtor-balance">{fmt(p.current_balance)}</div>
               {p.weekly_payment && <div className="debtor-weekly">{fmt(p.weekly_payment)}/wk</div>}
             </div>
           </div>
@@ -1174,60 +1071,6 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         </div>
       )}
       {tab==='contract'&&!st&&<div className="empty-state">No contract data</div>}
-
-      {/* === OFFBOARD DEBTOR === */}
-      <OffboardSection profile={pr} onDone={onBack} />
-    </div>
-  );
-}
-
-// ========== OFFBOARD DEBTOR ==========
-function OffboardSection({ profile, onDone }) {
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [confirmText, setConfirmText] = useState('');
-  const [ld, setLd] = useState(false);
-  const [ok, setOk] = useState('');
-  const [err, setErr] = useState('');
-
-  if (!profile) return null;
-
-  const doOffboard = async () => {
-    if (confirmText !== profile.debtor_number) { setErr('Type the debtor number exactly to confirm'); return; }
-    setLd(true); setErr(''); setOk('');
-    try {
-      const result = await sf('/rest/v1/rpc/admin_offboard_debtor', { method: 'POST', body: JSON.stringify({ p_profile_id: profile.id }) });
-      if (result?.error) { setErr(result.error); }
-      else { setOk(`✅ ${profile.display_name} (${profile.debtor_number}) has been offboarded. Profile archived and marked inactive.`); setTimeout(() => onDone?.(), 3000); }
-    } catch(e) { setErr('Error: ' + e.message); }
-    setLd(false);
-  };
-
-  return (
-    <div style={{marginTop:'32px',borderTop:'1px solid rgba(231,76,60,0.2)',paddingTop:'24px'}}>
-      {!showConfirm ? (
-        <button className="btn btn-outline" onClick={()=>setShowConfirm(true)} style={{width:'100%',borderColor:'rgba(231,76,60,0.3)',color:'var(--red)'}}>
-          🚪 Offboard This Debtor
-        </button>
-      ) : (
-        <div style={{background:'rgba(231,76,60,0.06)',border:'1px solid rgba(231,76,60,0.3)',borderRadius:'var(--radius)',padding:'20px'}}>
-          <div style={{fontSize:'14px',fontWeight:600,color:'var(--red)',marginBottom:'8px'}}>⚠️ Offboard {profile.display_name}?</div>
-          <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'16px'}}>
-            This will archive their profile, mark them inactive, clear personal info, delete pending notifications/tasks/orders, and remove them from the Wix portal. This cannot be undone.
-          </div>
-          <div className="form-group">
-            <label className="form-label">Type "{profile.debtor_number}" to confirm</label>
-            <input className="fi" value={confirmText} onChange={e=>setConfirmText(e.target.value)} placeholder={profile.debtor_number} />
-          </div>
-          {err && <div className="error-msg" style={{marginBottom:'12px'}}>{err}</div>}
-          {ok && <div className="success-msg" style={{marginBottom:'12px'}}>{ok}</div>}
-          <div style={{display:'flex',gap:'8px'}}>
-            <button className="btn btn-danger" onClick={doOffboard} disabled={ld||confirmText!==profile.debtor_number} style={{flex:1}}>
-              {ld ? <span className="spinner"/> : '🚪 Confirm Offboard'}
-            </button>
-            <button className="btn btn-outline" onClick={()=>{setShowConfirm(false);setConfirmText('');setErr('');}} style={{flex:1}}>Cancel</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1349,22 +1192,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const fee = addFee ? (parseFloat(feeAmt)||0) : 0;
   const isPay = type==='Payment';
   const nb = isPay ? bal-ca+fee : bal+ca+fee;
-  const [weeklyPaidSoFar, setWeeklyPaidSoFar] = useState(0);
-  
-  // Fetch weekly paid when debtor changes
-  useEffect(() => {
-    if (!sid || !isPay) { setWeeklyPaidSoFar(0); return; }
-    (async () => {
-      try {
-        const weekStart = getWeekStart(new Date());
-        const res = await sf(`/rest/v1/ledger?profile_id=eq.${sid}&entry_type=ilike.payment&created_at=gte.${weekStart.toISOString()}&select=amount`);
-        const total = (res || []).reduce((s, l) => s + Math.abs(parseFloat(l.amount) || 0), 0);
-        setWeeklyPaidSoFar(total);
-      } catch(e) { setWeeklyPaidSoFar(0); }
-    })();
-  }, [sid, type]);
-  
-  const te = isPay&&pr ? calcTok(ca, parseFloat(pr.weekly_payment)||0, pr.payment_streak||0, weeklyPaidSoFar) : 0;
+  const te = isPay&&pr ? calcTok(ca, parseFloat(pr.weekly_payment)||0, pr.payment_streak||0) : 0;
 
   // Auto-set fee amount from stipulations
   useEffect(() => {
@@ -1697,8 +1525,6 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
           <div className="preview-row"><span>{type}</span><span style={{color:isPay?'var(--green)':'var(--red)'}}>{isPay?'-':'+'}{fmt(ca)}</span></div>
           {fee>0&&<div className="preview-row"><span>Admin Fee</span><span style={{color:'var(--red)'}}>+{fmt(fee)}</span></div>}
           {te>0&&<div className="preview-row"><span>Tokens Earned</span><span style={{color:'var(--blue)'}}>🪙 +{te}</span></div>}
-          {isPay&&weeklyPaidSoFar>0&&<div className="preview-row"><span>Weekly paid so far</span><span style={{color:'var(--text-dim)'}}>{fmt(weeklyPaidSoFar)} + {fmt(ca)} = {fmt(weeklyPaidSoFar+ca)}</span></div>}
-          {isPay&&pr?.weekly_payment&&weeklyPaidSoFar+ca>parseFloat(pr.weekly_payment)&&<div className="preview-row"><span>⚡ Overpay bonus active</span><span style={{color:'var(--green)'}}>2x on {fmt(Math.max(0, weeklyPaidSoFar+ca-parseFloat(pr.weekly_payment)))} above {fmt(pr.weekly_payment)}/wk</span></div>}
           <div className="preview-row total"><span>New Balance</span><span>{fmt(nb)}</span></div>
         </div>
       )}
@@ -2496,13 +2322,9 @@ function Approvals({ pending, onDone, privacyMode }) {
 
 // ========== Admin Leaderboard ==========
 
-// ========== BULK TASKS DATA ==========
-const getBulkTasks = () => sf('/rest/v1/bulk_tasks?select=*&order=created_at.desc');
-const getBulkAssignments = (taskId) => sf(`/rest/v1/bulk_task_assignments?bulk_task_id=eq.${taskId}&select=*,profiles!inner(debtor_number,display_name,username,current_balance)&order=profiles(debtor_number).asc`);
-
 // ========== TASK MANAGER ==========
 function TaskManager({ tasks, profiles, onDone, privacyMode }) {
-  const [tab, setTab] = useState('bulk');
+  const [tab, setTab] = useState('pending');
   const [reviewItem, setReviewItem] = useState(null);
   const [fineAmt, setFineAmt] = useState('');
   const [fineNote, setFineNote] = useState('');
@@ -2510,6 +2332,8 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
+
+  // Assign task form
   const [assignPid, setAssignPid] = useState('');
   const [assignTitle, setAssignTitle] = useState('');
   const [assignDesc, setAssignDesc] = useState('');
@@ -2518,88 +2342,6 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [assigning, setAssigning] = useState(false);
   const [assignOk, setAssignOk] = useState('');
   const [taskShield, setTaskShield] = useState(null);
-
-  // === BULK TASKS STATE ===
-  const [bulkView, setBulkView] = useState('list');
-  const [bulkTasks, setBulkTasks] = useState([]);
-  const [selBulkTask, setSelBulkTask] = useState(null);
-  const [bulkAssignments, setBulkAssignments] = useState([]);
-  const [bulkLd, setBulkLd] = useState(false);
-  const [bTitle, setBTitle] = useState('');
-  const [bDesc, setBDesc] = useState('');
-  const [bDeadline, setBDeadline] = useState('');
-  const [bFineAmt, setBFineAmt] = useState('');
-  const [bSelected, setBSelected] = useState({});
-  const [bSaving, setBSaving] = useState(false);
-  const [bOk, setBOk] = useState('');
-  const [bErr, setBErr] = useState('');
-  const [bSendNotif, setBSendNotif] = useState(true);
-  const [bFiningAll, setBFiningAll] = useState(false);
-  const [bFineOk, setBFineOk] = useState('');
-  const [showEndedTasks, setShowEndedTasks] = useState(false);
-
-  const loadBulkTasks = async () => { setBulkLd(true); try { const t = await getBulkTasks(); setBulkTasks(t || []); } catch(e) { console.error(e); } setBulkLd(false); };
-  useEffect(() => { if (tab === 'bulk') loadBulkTasks(); }, [tab]);
-
-  const openBulkTask = async (task) => { setSelBulkTask(task); setBulkView('detail'); setBFineOk(''); try { const a = await getBulkAssignments(task.id); setBulkAssignments(a || []); } catch(e) { console.error(e); setBulkAssignments([]); } };
-  const startBulkCreate = () => { setBulkView('create'); setBTitle(''); setBDesc(''); setBDeadline(''); setBFineAmt(''); setBOk(''); setBErr(''); const sel = {}; profiles.forEach(p => { if (p.is_active !== false) sel[p.id] = true; }); setBSelected(sel); };
-  const toggleBDebtor = (id) => setBSelected({...bSelected, [id]: !bSelected[id]});
-  const bSelectAll = () => { const sel = {}; profiles.forEach(p => { sel[p.id] = true; }); setBSelected(sel); };
-  const bSelectNone = () => setBSelected({});
-
-  const createBulkTask = async () => {
-    if (!bTitle.trim()) { setBErr('Task title is required'); return; }
-    const selectedIds = Object.entries(bSelected).filter(([k,v]) => v).map(([k]) => k);
-    if (selectedIds.length === 0) { setBErr('Select at least one debtor'); return; }
-    setBSaving(true); setBErr(''); setBOk('');
-    try {
-      const taskRes = await sf('/rest/v1/bulk_tasks', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ title: bTitle.trim(), description: bDesc.trim() || null, deadline: bDeadline || null, fine_amount: parseFloat(bFineAmt) || 0 }) });
-      const taskId = taskRes[0].id;
-      const assigns = selectedIds.map(pid => ({ bulk_task_id: taskId, profile_id: pid, status: 'assigned' }));
-      await sf('/rest/v1/bulk_task_assignments', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(assigns) });
-      if (bSendNotif) {
-        const notifs = selectedIds.map(pid => ({ profile_id: pid, notification_type: 'general', title: '📋 New Task Assigned', message: (bDesc.trim() || bTitle.trim()), created_at: new Date().toISOString() }));
-        await sf('/rest/v1/notifications', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(notifs) });
-      }
-      setBOk(`✅ Task assigned to ${selectedIds.length} debtors${bSendNotif ? ' + notifications sent' : ''}`);
-      await loadBulkTasks(); setTimeout(() => { setBulkView('list'); setBOk(''); }, 2000);
-    } catch(e) { setBErr('Error: ' + e.message); }
-    setBSaving(false);
-  };
-
-  const markBCompleted = async (assignId) => { try { await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString() }) }); setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'completed', completed_at: new Date().toISOString()} : a)); } catch(e) { console.error(e); } };
-  const markBAssigned = async (assignId) => { try { await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'assigned', completed_at: null }) }); setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'assigned', completed_at: null} : a)); } catch(e) { console.error(e); } };
-
-  const endBulkTask = async (taskId) => {
-    try {
-      await sf(`/rest/v1/bulk_tasks?id=eq.${taskId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ is_active: false }) });
-      setBulkView('list'); setSelBulkTask(null); await loadBulkTasks();
-    } catch(e) { setBFineOk('Error: ' + e.message); }
-  };
-
-  const bulkFine = async () => {
-    const incomplete = bulkAssignments.filter(a => a.status === 'assigned');
-    if (incomplete.length === 0) return;
-    const fAmt = parseFloat(selBulkTask?.fine_amount) || 0;
-    if (fAmt <= 0) { setBFineOk('⚠️ No fine amount set for this task.'); return; }
-    setBFiningAll(true); setBFineOk('');
-    let count = 0;
-    try {
-      for (const a of incomplete) {
-        const bal = parseFloat(a.profiles?.current_balance) || 0; const nb = bal + fAmt; const now = new Date().toISOString();
-        const maxRowRes = await sf(`/rest/v1/ledger?profile_id=eq.${a.profile_id}&select=row_order&order=row_order.desc&limit=1`);
-        const nextRow = (maxRowRes && maxRowRes[0] ? (maxRowRes[0].row_order || 0) + 1 : 1);
-        await insertLedger({ profile_id: a.profile_id, entry_type: 'Fine', entry_date: now, amount: fAmt, balance_after: nb, description: `Task fine: ${selBulkTask.title}`, admin_fee: 0, created_at: now, tokens_awarded: 0, row_order: nextRow });
-        await patchProfile(a.profile_id, { current_balance: nb });
-        await sf(`/rest/v1/bulk_task_assignments?id=eq.${a.id}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'fined', fined_at: now }) });
-        await sf('/rest/v1/notifications', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ profile_id: a.profile_id, notification_type: 'general', title: '⚠️ Task Fine', message: `You were fined ${fmt(fAmt)} for not completing: ${selBulkTask.title}. New balance: ${fmt(nb)}.`, created_at: now }) });
-        count++;
-      }
-      setBFineOk(`✅ Fined ${count} debtors £${fAmt} each.`);
-      const updated = await getBulkAssignments(selBulkTask.id); setBulkAssignments(updated || []); onDone?.();
-    } catch(e) { setBFineOk('Error: ' + e.message); }
-    setBFiningAll(false);
-  };
 
   const pending = tasks.filter(t => t.status === 'submitted');
   const active = tasks.filter(t => t.status === 'active' || t.status === 'overdue');
@@ -2644,10 +2386,9 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
       <div className="page-title">📋 Task Manager</div>
 
       <div className="tabs">
-        <button className={`tab ${tab==='bulk'?'active':''}`} onClick={()=>{setTab('bulk');setBulkView('list');}}>Bulk Assign</button>
         <button className={`tab ${tab==='pending'?'active':''}`} onClick={()=>setTab('pending')}>Submitted ({pending.length})</button>
         <button className={`tab ${tab==='active'?'active':''}`} onClick={()=>setTab('active')}>Active ({active.length})</button>
-        <button className={`tab ${tab==='assign'?'active':''}`} onClick={()=>setTab('assign')}>Assign 1</button>
+        <button className={`tab ${tab==='assign'?'active':''}`} onClick={()=>setTab('assign')}>Assign</button>
         <button className={`tab ${tab==='history'?'active':''}`} onClick={()=>setTab('history')}>History</button>
       </div>
 
@@ -2759,137 +2500,6 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
           </div>
         ))}</div>
       )}
-
-      {/* === BULK ASSIGN TAB === */}
-      {tab === 'bulk' && bulkView === 'list' && (
-        <div>
-          <button className="btn" onClick={startBulkCreate} style={{width:'100%',marginBottom:'12px'}}>+ Assign New Bulk Task</button>
-          <label className="cb-row" style={{marginBottom:'12px',padding:'8px 12px'}}>
-            <input type="checkbox" checked={showEndedTasks} onChange={e=>setShowEndedTasks(e.target.checked)} />
-            <span style={{fontSize:'13px'}}>Show ended tasks</span>
-          </label>
-          {bulkLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
-            bulkTasks.filter(t => showEndedTasks || t.is_active !== false).length === 0 ? <div className="empty-state">No bulk tasks assigned yet</div> :
-            <div className="feed-list">
-              {bulkTasks.filter(t => showEndedTasks || t.is_active !== false).map(t => {
-                const dl = t.deadline ? new Date(t.deadline) : null;
-                const overdue = dl && dl < new Date();
-                const ended = t.is_active === false;
-                return (
-                  <div className="feed-item" key={t.id} onClick={() => openBulkTask(t)} style={{opacity: ended ? 0.5 : 1}}>
-                    <div className={`feed-icon ${ended ? 'fi-fee' : (overdue ? 'fi-fine' : 'fi-pay')}`}>{ended ? '🏁' : (overdue ? '⏰' : '📋')}</div>
-                    <div className="feed-body">
-                      <div className="feed-text"><strong>{t.title}</strong>{ended && <span style={{color:'var(--text-muted)',fontSize:'11px',marginLeft:'8px'}}>ENDED</span>}</div>
-                      <div className="feed-time">{dl ? `Deadline: ${fmtD(t.deadline)}${overdue ? ' — OVERDUE' : ''}` : 'No deadline'}{t.fine_amount > 0 && ` · Fine: ${fmt(t.fine_amount)}`}</div>
-                    </div>
-                    <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
-                  </div>
-                );
-              })}
-            </div>
-          }
-        </div>
-      )}
-
-      {tab === 'bulk' && bulkView === 'create' && (() => {
-        const selCount = Object.values(bSelected).filter(Boolean).length;
-        return (
-          <div>
-            <button className="back-btn" onClick={() => setBulkView('list')}>← Back</button>
-            <div className="form-group"><label className="form-label">Task Title</label><input className="fi" value={bTitle} onChange={e => setBTitle(e.target.value)} placeholder="e.g. Buy Mind Body Wallet Clip" /></div>
-            <div className="form-group"><label className="form-label">Description / Message</label><textarea className="ft" value={bDesc} onChange={e => setBDesc(e.target.value)} placeholder="This will be sent as the notification message..." /></div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
-              <div className="form-group"><label className="form-label">Deadline</label><input className="fi" type="datetime-local" value={bDeadline} onChange={e => setBDeadline(e.target.value)} /></div>
-              <div className="form-group"><label className="form-label">Fine if missed (£)</label><input className="fi" type="number" inputMode="decimal" value={bFineAmt} onChange={e => setBFineAmt(e.target.value)} placeholder="0" /></div>
-            </div>
-            <div className="form-group"><label className="cb-row"><input type="checkbox" checked={bSendNotif} onChange={e => setBSendNotif(e.target.checked)} /><span style={{fontSize:'13px'}}>📨 Send notification to selected debtors</span></label></div>
-            <div style={{marginBottom:'16px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-                <label className="form-label" style={{margin:0}}>Assign To ({selCount} selected)</label>
-                <div style={{display:'flex',gap:'6px'}}>
-                  <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'11px'}} onClick={bSelectAll}>All</button>
-                  <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'11px'}} onClick={bSelectNone}>None</button>
-                </div>
-              </div>
-              <div style={{maxHeight:'300px',overflowY:'auto',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',background:'var(--bg-input)'}}>
-                {profiles.map(p => (
-                  <label key={p.id} className="cb-row" style={{borderRadius:0,borderBottom:'1px solid var(--border)',padding:'10px 12px',background: bSelected[p.id] ? 'var(--gold-glow)' : 'transparent'}}>
-                    <input type="checkbox" checked={!!bSelected[p.id]} onChange={() => toggleBDebtor(p.id)} />
-                    <span style={{fontSize:'13px'}}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name}{!privacyMode && p.username && <span style={{color:'var(--text-muted)',fontStyle:'italic'}}> @{p.username}</span>}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            {bErr && <div className="error-msg" style={{marginBottom:'12px'}}>{bErr}</div>}
-            {bOk && <div className="success-msg" style={{marginBottom:'12px'}}>{bOk}</div>}
-            <button className="btn" onClick={createBulkTask} disabled={bSaving} style={{width:'100%'}}>{bSaving ? <span className="spinner"/> : `Assign to ${selCount} Debtors`}</button>
-          </div>
-        );
-      })()}
-
-      {tab === 'bulk' && bulkView === 'detail' && selBulkTask && (() => {
-        const bAssigned = bulkAssignments.filter(a => a.status === 'assigned');
-        const bCompleted = bulkAssignments.filter(a => a.status === 'completed');
-        const bFined = bulkAssignments.filter(a => a.status === 'fined');
-        const dl = selBulkTask.deadline ? new Date(selBulkTask.deadline) : null;
-        const overdue = dl && dl < new Date();
-        const isEnded = selBulkTask.is_active === false;
-        return (
-          <div>
-            <button className="back-btn" onClick={() => { setBulkView('list'); setSelBulkTask(null); }}>← Back</button>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-              <div style={{fontSize:'18px',fontWeight:600,color: isEnded ? 'var(--text-dim)' : 'var(--gold)',fontFamily:'Cormorant Garamond, serif'}}>{selBulkTask.title}{isEnded && <span style={{fontSize:'12px',color:'var(--text-muted)',marginLeft:'8px',fontFamily:'DM Sans, sans-serif'}}>ENDED</span>}</div>
-              {!isEnded && (
-                <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{if(!confirm('End this task? It will be marked as inactive.')) return;await endBulkTask(selBulkTask.id);setSelBulkTask({...selBulkTask, is_active:false});await loadBulkTasks();}}>🏁 End Task</button>
-              )}
-            </div>
-            {selBulkTask.description && <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'16px',lineHeight:1.6}}>{selBulkTask.description}</div>}
-            <div className="stats-grid" style={{marginBottom:'16px'}}>
-              <div className="stat-card"><div className="stat-label">Assigned</div><div className="stat-value sm" style={{color:'var(--text)'}}>{bAssigned.length}</div></div>
-              <div className="stat-card"><div className="stat-label">Completed</div><div className="stat-value sm" style={{color:'var(--green)'}}>{bCompleted.length}</div></div>
-              {dl && <div className="stat-card"><div className="stat-label">Deadline</div><div className="stat-value sm" style={{fontSize:'14px',color: overdue ? 'var(--red)' : 'var(--text-dim)'}}>{fmtD(selBulkTask.deadline)}{overdue ? ' ⏰' : ''}</div></div>}
-              {selBulkTask.fine_amount > 0 && <div className="stat-card"><div className="stat-label">Fine Amount</div><div className="stat-value sm" style={{color:'var(--red)'}}>{fmt(selBulkTask.fine_amount)}</div></div>}
-            </div>
-            {!isEnded && bAssigned.length > 0 && selBulkTask.fine_amount > 0 && (
-              <div style={{marginBottom:'16px'}}><button className="btn btn-danger" onClick={bulkFine} disabled={bFiningAll} style={{width:'100%'}}>{bFiningAll ? <span className="spinner"/> : `⚠️ Fine ${bAssigned.length} Incomplete — ${fmt(selBulkTask.fine_amount)} each`}</button></div>
-            )}
-            {bFineOk && <div className={bFineOk.startsWith('✅') ? 'success-msg' : 'error-msg'} style={{marginBottom:'12px'}}>{bFineOk}</div>}
-            {bAssigned.length > 0 && (
-              <div style={{marginBottom:'20px'}}>
-                <div className="section-title" style={{color:'var(--red)'}}>❌ Not Completed ({bAssigned.length})</div>
-                {bAssigned.map(a => (
-                  <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
-                    <div><div style={{fontSize:'13px',fontWeight:600}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>{!privacyMode && a.profiles?.username && <div style={{fontSize:'11px',color:'var(--text-muted)',fontStyle:'italic'}}>@{a.profiles.username}</div>}</div>
-                    {!isEnded && <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={() => markBCompleted(a.id)}>✓ Done</button>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {bCompleted.length > 0 && (
-              <div style={{marginBottom:'20px'}}>
-                <div className="section-title" style={{color:'var(--green)'}}>✅ Completed ({bCompleted.length})</div>
-                {bCompleted.map(a => (
-                  <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'rgba(76,175,80,0.05)',border:'1px solid rgba(76,175,80,0.2)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
-                    <div><div style={{fontSize:'13px',fontWeight:600,color:'var(--green)'}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>{a.completed_at && <div style={{fontSize:'10px',color:'var(--text-muted)'}}>{fmtD(a.completed_at)}</div>}</div>
-                    {!isEnded && <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'10px'}} onClick={() => markBAssigned(a.id)}>Undo</button>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {bFined.length > 0 && (
-              <div>
-                <div className="section-title" style={{color:'var(--red)'}}>⚠️ Fined ({bFined.length})</div>
-                {bFined.map(a => (
-                  <div key={a.id} style={{padding:'10px 12px',background:'rgba(231,76,60,0.05)',border:'1px solid rgba(231,76,60,0.2)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
-                    <div style={{fontSize:'13px',fontWeight:600,color:'var(--red)'}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>
-                    {a.fined_at && <div style={{fontSize:'10px',color:'var(--text-muted)'}}>Fined {fmtD(a.fined_at)}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </div>
   );
 }
@@ -3009,10 +2619,6 @@ function ShopOrders({ orders, onDone, privacyMode }) {
   const [showReject, setShowReject] = useState(false);
   const [shieldUses, setShieldUses] = useState('1');
   const [shieldDays, setShieldDays] = useState('');
-  const [taskDuration, setTaskDuration] = useState('');
-  const [activeTasks, setActiveTasks] = useState([]);
-  const [activeTab, setActiveTab] = useState('pending');
-  const [taskLd, setTaskLd] = useState(false);
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
@@ -3023,29 +2629,16 @@ function ShopOrders({ orders, onDone, privacyMode }) {
     'fine_shield': '🔰 Fine Shield',
     'task_shield': '🚫 Task Shield',
     'custom_task': '🎯 Custom Task',
-    'sacrifice_ledger': '📖 The Sacrifice Ledger',
     'reward_1st': '🏆 1st Place Reward',
     'reward_2nd': '🥈 2nd Place Reward',
     'reward_3rd': '🥉 3rd Place Reward'
   };
 
   const isShield = (type) => ['interest_shield','fine_shield','task_shield'].includes(type);
-  const isTask = (type) => ['lines','custom_task','sacrifice_ledger'].includes(type);
-
-  const loadActiveTasks = async () => {
-    setTaskLd(true);
-    try {
-      const d = await sf('/rest/v1/shop_orders?task_status=in.(active,completed,failed)&select=*,profiles!inner(display_name,debtor_number,username)&order=created_at.desc&limit=100');
-      setActiveTasks(d || []);
-    } catch(e) { console.error(e); }
-    setTaskLd(false);
-  };
-
-  useEffect(() => { loadActiveTasks(); }, []);
 
   const openReview = (item) => {
     setReviewItem(item); setAdminNote(''); setRejectReason(''); setShowReject(false); setOk(''); setErr('');
-    setShieldUses('1'); setShieldDays(''); setTaskDuration('');
+    setShieldUses('1'); setShieldDays('');
   };
 
   const doApprove = async () => {
@@ -3057,15 +2650,11 @@ function ShopOrders({ orders, onDone, privacyMode }) {
         body.p_shield_uses = parseInt(shieldUses) || 1;
         body.p_shield_days = shieldDays ? parseInt(shieldDays) : null;
       }
-      if (isTask(reviewItem.item_type) && taskDuration) {
-        body.p_task_duration_days = parseInt(taskDuration) || null;
-      }
       const result = await sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify(body) });
       if (result && result.error) { setErr(result.error); setLd(false); return; }
-      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}${result.task_duration ? ' Duration: ' + result.task_duration + ' days.' : ''}`);
+      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}`);
       setReviewItem(null);
       onDone?.();
-      loadActiveTasks();
     } catch(e) { setErr('Error: ' + e.message); }
     setLd(false);
   };
@@ -3085,21 +2674,10 @@ function ShopOrders({ orders, onDone, privacyMode }) {
 
   return (
     <div className="page">
-      <div className="page-title">🛒 Shop Orders</div>
-      
-      <div className="tabs">
-        <button className={`tab ${activeTab==='pending'?'active':''}`} onClick={()=>setActiveTab('pending')}>Pending ({orders.length})</button>
-        <button className={`tab ${activeTab==='active'?'active':''}`} onClick={()=>{setActiveTab('active');loadActiveTasks();}}>Active Tasks ({activeTasks.filter(t=>t.task_status==='active').length})</button>
-        <button className={`tab ${activeTab==='history'?'active':''}`} onClick={()=>{setActiveTab('history');loadActiveTasks();}}>History</button>
-      </div>
-
+      <div className="page-title">🛒 Shop Orders ({orders.length})</div>
       {ok && <div className="success-msg" style={{marginBottom:'16px'}}>{ok}</div>}
       {err && <div className="error-msg" style={{marginBottom:'16px'}}>{err}</div>}
-
-      {/* === PENDING TAB === */}
-      {activeTab === 'pending' && (
-        <div>
-          {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
+      {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
 
       {reviewItem && (
         <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'20px'}}>
@@ -3135,17 +2713,6 @@ function ShopOrders({ orders, onDone, privacyMode }) {
                       <input className="fi" type="number" value={shieldDays} onChange={e=>setShieldDays(e.target.value)} placeholder="No expiry" min="1" />
                       <div className="form-hint">Leave empty for no expiry</div>
                     </div>
-                  </div>
-                </div>
-              )}
-              {/* Task duration config */}
-              {isTask(reviewItem.item_type) && (
-                <div style={{background:'rgba(201,168,76,0.06)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px'}}>
-                  <div style={{fontSize:'11px',fontWeight:600,color:'var(--gold)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'8px'}}>⏱️ Timed Task Settings (optional)</div>
-                  <div className="form-group" style={{margin:0}}>
-                    <label className="form-label">Duration (days)</label>
-                    <input className="fi" type="number" value={taskDuration} onChange={e=>setTaskDuration(e.target.value)} placeholder="e.g. 7 for a 7-day challenge" min="1" />
-                    <div className="form-hint">Leave empty if this isn't a multi-day task. Debtor will see a day-by-day countdown.</div>
                   </div>
                 </div>
               )}
@@ -3194,101 +2761,6 @@ function ShopOrders({ orders, onDone, privacyMode }) {
               <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
             </div>
           ))}
-        </div>
-      )}
-        </div>
-      )}
-
-      {/* === ACTIVE TASKS TAB === */}
-      {activeTab === 'active' && (
-        <div>
-          {taskLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
-            activeTasks.filter(t=>t.task_status==='active').length === 0 ? <div className="empty-state">No active timed tasks</div> :
-            <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
-              {activeTasks.filter(t=>t.task_status==='active').map(t => {
-                const daysLeft = (t.task_duration_days || 0) - (t.task_days_completed || 0);
-                const pct = t.task_duration_days > 0 ? Math.round(((t.task_days_completed || 0) / t.task_duration_days) * 100) : 0;
-                const startDate = t.task_start_date ? new Date(t.task_start_date) : null;
-                const daysSinceStart = startDate ? Math.floor((Date.now() - startDate.getTime()) / (1000*60*60*24)) : 0;
-                return (
-                  <div key={t.id} style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'16px'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
-                      <div>
-                        <div style={{fontSize:'14px',fontWeight:600,color:'var(--gold)'}}>{itemLabels[t.item_type] || t.item_type}</div>
-                        <div style={{fontSize:'12px',color:'var(--text-dim)'}}>{t.profiles?.debtor_number} — {privacyMode ? '••••' : t.profiles?.display_name}</div>
-                      </div>
-                      <div style={{textAlign:'right'}}>
-                        <div style={{fontSize:'16px',fontWeight:700,color: daysLeft <= 1 ? 'var(--green)' : 'var(--text)'}}>{daysLeft} day{daysLeft !== 1 ? 's' : ''} left</div>
-                        <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Started {fmtD(t.task_start_date)}</div>
-                      </div>
-                    </div>
-                    {/* Progress bar */}
-                    <div style={{height:'8px',background:'var(--bg-input)',borderRadius:'4px',overflow:'hidden',marginBottom:'10px'}}>
-                      <div style={{height:'100%',width:`${pct}%`,background: pct >= 100 ? 'var(--green)' : 'var(--gold)',borderRadius:'4px',transition:'width 0.3s'}} />
-                    </div>
-                    {/* Day checkboxes */}
-                    <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'10px'}}>
-                      {Array.from({length: t.task_duration_days || 0}, (_,i) => {
-                        const completed = i < (t.task_days_completed || 0);
-                        const log = (t.task_day_log || [])[i];
-                        return (
-                          <div key={i} title={log?.completed_at ? 'Day ' + (i+1) + ' — ' + fmtD(log.completed_at) + (log.note ? ' — ' + log.note : '') : 'Day ' + (i+1)} style={{
-                            width:'32px',height:'32px',borderRadius:'50%',
-                            background: completed ? 'var(--gold)' : 'var(--bg-input)',
-                            border: '2px solid ' + (completed ? 'var(--gold)' : 'var(--border)'),
-                            display:'flex',alignItems:'center',justifyContent:'center',
-                            fontSize:'11px',color: completed ? '#0a0a0a' : 'var(--text-muted)',fontWeight:700
-                          }}>
-                            {completed ? '✓' : i+1}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {t.admin_note && <div style={{fontSize:'12px',color:'var(--text-dim)',marginBottom:'10px',fontStyle:'italic'}}>📝 {t.admin_note}</div>}
-                    {/* Mark day buttons */}
-                    <div style={{display:'flex',gap:'8px'}}>
-                      <button className="btn btn-sm" style={{flex:1}} onClick={async()=>{
-                        try{
-                          const r=await sf('/rest/v1/rpc/admin_mark_task_day',{method:'POST',body:JSON.stringify({p_order_id:t.id})});
-                          if(r?.error){setErr(r.error);}else{setOk(`✅ Day ${r.days_completed}/${r.total_days} marked${r.is_done?' — TASK COMPLETE!':''}`);loadActiveTasks();onDone?.();}
-                        }catch(e){setErr('Error: '+e.message);}
-                      }} disabled={(t.task_days_completed||0)>=(t.task_duration_days||0)}>✓ Mark Day {(t.task_days_completed||0)+1}</button>
-                      <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{
-                        try{
-                          const r=await sf('/rest/v1/rpc/admin_undo_task_day',{method:'POST',body:JSON.stringify({p_order_id:t.id})});
-                          if(r?.error){setErr(r.error);}else{setOk('↩ Undid day mark');loadActiveTasks();}
-                        }catch(e){setErr('Error: '+e.message);}
-                      }} disabled={(t.task_days_completed||0)<=0}>↩ Undo</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          }
-        </div>
-      )}
-
-      {/* === HISTORY TAB === */}
-      {activeTab === 'history' && (
-        <div>
-          {taskLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
-            activeTasks.filter(t=>t.task_status==='completed'||t.task_status==='failed').length === 0 ? <div className="empty-state">No completed tasks yet</div> :
-            <div className="feed-list">
-              {activeTasks.filter(t=>t.task_status==='completed'||t.task_status==='failed').map(t => (
-                <div className="feed-item" key={t.id}>
-                  <div className="feed-icon" style={{background:t.task_status==='completed'?'rgba(76,175,80,0.15)':'rgba(231,76,60,0.15)'}}>{t.task_status==='completed'?'✅':'❌'}</div>
-                  <div className="feed-body">
-                    <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {itemLabels[t.item_type]||t.item_type}</div>
-                    <div className="feed-time">
-                      {t.task_status==='completed'?'Completed':'Failed'} · {t.task_days_completed||0}/{t.task_duration_days||0} days
-                      {t.admin_note&&' · '+t.admin_note}
-                      {' · '+ago(t.resolved_at||t.created_at)}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          }
         </div>
       )}
     </div>
@@ -3490,7 +2962,6 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       <header className="header">
         <div className="header-brand"><span className="header-crown">👑</span><span className="header-title">Truee Empire</span></div>
         <div className="header-actions">
-          <button className="header-btn" onClick={()=>{load();}} title="Refresh data" style={{fontSize:'16px'}}>🔄</button>
           <button className={`header-btn ${privacyMode?'active':''}`} onClick={()=>setPrivacyMode(!privacyMode)} title={privacyMode?'Show names':'Hide names'}>
             {privacyMode ? '🙈' : '👁'}
           </button>
@@ -3500,7 +2971,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       {dl&&profs.length===0 ? <div className="loading-screen" style={{minHeight:'60vh'}}><div className="spinner"/><span>Loading empire data...</span></div> : <>
         {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} alertPrefs={alertPrefs} onDismiss={dismissAlert} onTogglePref={toggleAlertPref} />}
         {pg==='leaderboard'&&<AdminLeaderboard leaderboardData={lbData} profiles={profs} privacyMode={privacyMode} onView={vd} onRefresh={load} />}
-        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} activity={act} />}
+        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
@@ -3537,7 +3008,6 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
           <span className="nav-icon">🏪</span><span className="nav-label">Items</span>
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
-        <button className={`nav-item ${pg==='tasks'?'active':''}`} onClick={()=>setPg('tasks')}><span className="nav-icon">📋</span><span className="nav-label">Tasks</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
