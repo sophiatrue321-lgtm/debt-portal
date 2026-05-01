@@ -592,7 +592,7 @@ body {
 }
 .wheel-tier-btn:hover:not(:disabled) { border-color: rgba(201,168,76,0.3); }
 .wheel-tier-btn.active { border-color: var(--te-gold); background: rgba(201,168,76,0.08); }
-.wheel-tier-btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+.wheel-tier-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .wheel-tier-cost { font-size: 11px; color: var(--te-text-dim); letter-spacing: 1px; }
 .wheel-main-spin-btn {
   display: block; width: 100%; max-width: 300px;
@@ -605,7 +605,7 @@ body {
   text-transform: uppercase; transition: all 0.3s;
 }
 .wheel-main-spin-btn:hover:not(:disabled) { background: var(--te-gold); color: var(--te-bg); }
-.wheel-main-spin-btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+.wheel-main-spin-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .wheel-tier-badge {
   font-size: 11px; font-weight: 500; letter-spacing: 2px;
   text-transform: uppercase; padding: 3px 12px; border-radius: 4px;
@@ -777,7 +777,6 @@ body {
     <button class="nav-tab" data-tab="profile" onclick="switchTab(this)">My Profile</button>
     <button class="nav-tab" data-tab="ledger" onclick="switchTab(this)">Ledger</button>
     <button class="nav-tab" data-tab="submit" onclick="switchTab(this)">Submit</button>
-    <button class="nav-tab" data-tab="tasks" onclick="switchTab(this);loadOngoingTasks()">Tasks</button>
     <button class="nav-tab" data-tab="shop" onclick="switchTab(this)">Shop</button>
     <button class="nav-tab" data-tab="wheel" onclick="switchTab(this)">Wheel</button>
     <button class="nav-tab" data-tab="stipulations" onclick="switchTab(this)">Stipulations</button>
@@ -853,12 +852,6 @@ body {
       <div id="activeAddonsWrap" style="display:none;margin-top:1.25rem;">
         <div class="section-title" style="margin-top:0;">🛡️ Active add-ons</div>
         <div id="activeAddonsList"></div>
-      </div>
-
-      <!-- ACTIVE TIMED TASKS -->
-      <div id="activeTimedTaskWrap" style="display:none;margin-top:1.25rem;">
-        <div class="section-title" style="margin-top:0;">⏱️ Active challenge</div>
-        <div id="activeTimedTaskCard"></div>
       </div>
 
       <!-- TASKS DUE -->
@@ -944,37 +937,6 @@ body {
       </div>
     </div>
 
-    <!-- ========== TASKS TAB ========== -->
-    <div class="tab-panel" id="tab-tasks">
-      <div class="codex-header" style="padding:1.5rem 0 1rem;">
-        <div class="codex-crown">📋</div>
-        <div class="codex-title">Your Tasks</div>
-        <div class="codex-sub">Assigned by the Empress. Complete before the deadline.</div>
-      </div>
-      <!-- Task sub-tabs -->
-      <div style="display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;">
-        <button class="shop-subnav-btn active" onclick="switchTaskTab(this,'ongoing')" style="flex:1;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--te-border);background:var(--te-gold);color:#0a0a0a;font-family:inherit;text-align:center;">Ongoing</button>
-        <button class="shop-subnav-btn" onclick="switchTaskTab(this,'assigned')" style="flex:1;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--te-border);background:transparent;color:var(--te-text-dim);font-family:inherit;text-align:center;">Assigned</button>
-        <button class="shop-subnav-btn" onclick="switchTaskTab(this,'history')" style="flex:1;padding:10px 8px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--te-border);background:transparent;color:var(--te-text-dim);font-family:inherit;text-align:center;">History</button>
-      </div>
-      <div id="tasksOngoing" class="task-section active">
-        <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
-      </div>
-      <div id="tasksAssigned" class="task-section" style="display:none;">
-        <div id="tasksList">
-          <div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>
-        </div>
-      </div>
-      <div id="tasksHistory" class="task-section" style="display:none;">
-        <div id="tasksHistoryList">
-          <div class="loading-spinner"><div class="spinner"></div>Loading...</div>
-        </div>
-      </div>
-      <div class="codex-warn" style="margin-top:16px;">
-        Tasks are assigned by the Empress. Failure to complete by the deadline may result in a fine. Check in daily on timed tasks.
-      </div>
-    </div>
-
     <!-- ========== SHOP TAB (DYNAMIC) ========== -->
     <div class="tab-panel" id="tab-shop">
       <div class="codex-header" style="padding:1.5rem 0 1rem;">
@@ -1017,8 +979,6 @@ body {
         <div class="codex-warn" style="margin-top:12px;">Tokens are deducted only after the Empress approves. No refunds.</div>
       </div>
 
-      <div id="shopMessage" style="display:none;margin-bottom:16px;position:sticky;top:60px;z-index:50;"></div>
-
       <!-- ORDERS -->
       <div class="shop-section" id="shop-orders">
         <div class="section-title" style="margin-top:0;">Your orders</div>
@@ -1027,6 +987,7 @@ body {
         </div>
       </div>
 
+      <div id="shopMessage" style="display:none;margin-top:12px;"></div>
     </div>
 
     <!-- ========== WHEEL TAB ========== -->
@@ -1448,7 +1409,6 @@ function renderProfile() {
   updateRewardAccess();
   renderActiveAddons();
   renderTasksDue();
-  renderHomeActiveTasks();
   renderShopItemsDynamic();
 }
 
@@ -1531,14 +1491,7 @@ function renderShopOrders() {
   var itemLabels = {
     'lines': '📝 Lines',
     'interest_shield': '🛡️ Interest Shield',
-    'fine_shield': '🔰 Fine Shield',
-    'task_shield': '🚫 Task Shield',
     'custom_task': '🎯 Custom Task',
-    'sacrifice_ledger': '📖 The Sacrifice Ledger',
-    'empress_voicenote': '🎧 Empress Voice Note',
-    'dm_session': '💌 Private DM Session',
-    'custom_wallpaper': '🖼️ Custom Wallpaper',
-    'debt_freeze': '🥶 Debt Freeze',
     'reward_1st': '🏆 1st Place Reward',
     'reward_2nd': '🥈 2nd Place Reward',
     'reward_3rd': '🥉 3rd Place Reward'
@@ -1546,7 +1499,7 @@ function renderShopOrders() {
   var html = '';
   shopOrdersData.forEach(function(order) {
     var statusClass = 'status-' + order.status;
-    var statusLabel = order.status === 'pending' ? '⏳ Pending Approval' : (order.status === 'approved' ? '✅ Approved' : (order.status === 'rejected' ? '❌ Rejected' : order.status.charAt(0).toUpperCase() + order.status.slice(1)));
+    var statusLabel = order.status.charAt(0).toUpperCase() + order.status.slice(1);
     var label = itemLabels[order.item_type] || order.item_type;
     var dateStr = formatTimeAgo(new Date(order.created_at));
     html += '<div class="submission-card">';
@@ -1572,32 +1525,24 @@ function renderShopOrders() {
 }
 
 async function placeShopOrder(itemType) {
-  if (!confirm('Submit this order? Tokens will be deducted once approved by the Empress.')) return;
   var msgEl = document.getElementById('shopMessage');
   msgEl.style.display = 'block';
   msgEl.className = '';
-  msgEl.innerHTML = '<div class="loading-spinner" style="padding:0.5rem;"><div class="spinner"></div>Submitting order...</div>';
+  msgEl.innerHTML = '<div class="loading-spinner" style="padding:0.5rem;"><div class="spinner"></div>Submitting...</div>';
   try {
     var result = await sb.rpc('place_shop_order', { p_item_type: itemType, p_note: null });
     if (result.error) throw result.error;
     var data = result.data;
     if (data.error) {
-      msgEl.innerHTML = '<div style="background:rgba(196,92,92,0.12);border:1px solid rgba(196,92,92,0.4);border-radius:8px;padding:16px;text-align:center;"><div style="font-size:18px;margin-bottom:8px;">❌</div><div style="font-size:14px;font-weight:600;color:var(--te-red);margin-bottom:4px;">Order Failed</div><div style="font-size:13px;color:var(--te-text-dim);">' + data.error + '</div></div>';
-      setTimeout(function() { msgEl.style.display = 'none'; }, 6000);
+      msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">' + data.error + '</div>';
     } else {
-      msgEl.innerHTML = '<div style="background:rgba(92,184,122,0.12);border:1px solid rgba(92,184,122,0.4);border-radius:8px;padding:20px;text-align:center;"><div style="font-size:24px;margin-bottom:8px;">✅</div><div style="font-size:16px;font-weight:600;color:var(--te-green);margin-bottom:6px;">Order Submitted!</div><div style="font-size:13px;color:var(--te-text-dim);line-height:1.6;">Your order is now <strong>pending approval</strong> from the Empress.<br>Tokens will be deducted once approved.<br>Check the <strong>Orders</strong> tab to track your order status.</div></div>';
-      // Refresh orders list and switch to orders tab
+      msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-green);color:var(--te-green);">\u2705 ' + data.message + '</div>';
       await loadShopOrders();
-      // Auto-switch to orders tab after a moment
-      setTimeout(function() {
-        var ordersBtn = document.querySelector('[onclick*="switchShop"][onclick*="orders"]');
-        if (ordersBtn) ordersBtn.click();
-      }, 2000);
-      setTimeout(function() { msgEl.style.display = 'none'; }, 8000);
     }
+    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
   } catch(e) {
-    msgEl.innerHTML = '<div style="background:rgba(196,92,92,0.12);border:1px solid rgba(196,92,92,0.4);border-radius:8px;padding:16px;text-align:center;"><div style="font-size:18px;margin-bottom:8px;">❌</div><div style="font-size:14px;font-weight:600;color:var(--te-red);margin-bottom:4px;">Error</div><div style="font-size:13px;color:var(--te-text-dim);">' + (e.message || 'Unknown error') + '</div></div>';
-    setTimeout(function() { msgEl.style.display = 'none'; }, 6000);
+    msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">Error: ' + (e.message || 'Unknown error') + '</div>';
+    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
   }
 }
 
@@ -1750,109 +1695,6 @@ async function markTaskComplete(taskId) {
   } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
 }
 
-async function renderHomeActiveTasks() {
-  var timedWrap = document.getElementById('activeTimedTaskWrap');
-  var timedCard = document.getElementById('activeTimedTaskCard');
-  var tasksDueWrap = document.getElementById('tasksDueWrap');
-  var tasksDueList = document.getElementById('tasksDueList');
-  if (!currentProfile) return;
-
-  // Load timed tasks from shop_orders
-  try {
-    var timedResult = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).eq('task_status', 'active').order('created_at', { ascending: false });
-    var timedTasks = timedResult.data || [];
-
-    if (timedTasks.length > 0 && timedWrap && timedCard) {
-      timedWrap.style.display = 'block';
-      var tHtml = '';
-      var now = new Date();
-      timedTasks.forEach(function(t) {
-        var daysTotal = t.task_duration_days || 0;
-        var daysCompleted = t.task_days_completed || 0;
-        var daysLeft = daysTotal - daysCompleted;
-        var pct = daysTotal > 0 ? Math.round((daysCompleted / daysTotal) * 100) : 0;
-        var endDate = t.task_end_date ? new Date(t.task_end_date) : null;
-        var log = t.task_checkin_log || [];
-        var today = now.toISOString().split('T')[0];
-        var checkedInToday = log.some(function(entry) { return entry.date === today; });
-
-        tHtml += '<div style="background:var(--te-surface);border:1px solid var(--te-gold-border);border-radius:10px;padding:16px;margin-bottom:8px;">';
-        tHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
-        tHtml += '<div style="font-size:14px;font-weight:600;color:var(--te-text);">⏱️ ' + (t.admin_note || 'Timed Challenge') + '</div>';
-        tHtml += '<div style="font-size:13px;font-weight:700;color:' + (daysLeft <= 1 ? 'var(--te-green)' : 'var(--te-text)') + ';">' + daysLeft + 'd left</div>';
-        tHtml += '</div>';
-
-        // Progress bar
-        tHtml += '<div style="height:6px;background:var(--te-surface);border:1px solid var(--te-border);border-radius:3px;overflow:hidden;margin-bottom:10px;">';
-        tHtml += '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--te-green)' : 'var(--te-gold)') + ';border-radius:3px;"></div>';
-        tHtml += '</div>';
-
-        // Day circles
-        tHtml += '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;justify-content:center;">';
-        for (var i = 0; i < daysTotal; i++) {
-          var dayDone = i < daysCompleted;
-          tHtml += '<div style="width:26px;height:26px;border-radius:50%;background:' + (dayDone ? 'var(--te-gold)' : 'var(--te-surface)') + ';border:2px solid ' + (dayDone ? 'var(--te-gold)' : 'var(--te-border)') + ';display:flex;align-items:center;justify-content:center;font-size:10px;color:' + (dayDone ? '#0a0a0a' : 'var(--te-text-dim)') + ';font-weight:700;">';
-          tHtml += dayDone ? '✓' : (i + 1);
-          tHtml += '</div>';
-        }
-        tHtml += '</div>';
-
-        tHtml += '<div style="font-size:11px;color:var(--te-text-dim);text-align:center;margin-bottom:10px;">' + daysCompleted + '/' + daysTotal + ' days';
-        if (endDate) tHtml += ' · Ends ' + endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-        tHtml += '</div>';
-
-        // Check-in button - link to tasks tab instead of duplicating
-        if (!checkedInToday && daysCompleted < daysTotal) {
-          tHtml += '<button class="login-btn" style="width:100%;padding:10px;font-size:12px;margin:0;" onclick="switchTab(document.querySelector(\'[data-tab=tasks]\'));loadOngoingTasks();">📝 Go to Tasks to Check In</button>';
-        } else if (checkedInToday) {
-          tHtml += '<div style="text-align:center;padding:8px;background:rgba(92,184,122,0.1);border:1px solid rgba(92,184,122,0.3);border-radius:8px;font-size:12px;color:var(--te-green);font-weight:600;">✅ Checked in today</div>';
-        }
-        tHtml += '</div>';
-      });
-      timedCard.innerHTML = tHtml;
-    } else if (timedWrap) {
-      timedWrap.style.display = 'none';
-    }
-  } catch(e) { console.error('Error loading timed tasks:', e); }
-
-  // Load bulk task assignments and show on home
-  try {
-    var bulkResult = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, deadline, fine_amount, is_active)').eq('profile_id', currentProfile.id).eq('status', 'assigned').order('created_at', { ascending: false });
-    var bulkTasks = (bulkResult.data || []).filter(function(a) { return a.bulk_tasks && a.bulk_tasks.is_active !== false; });
-
-    if (bulkTasks.length > 0 && tasksDueWrap && tasksDueList) {
-      tasksDueWrap.style.display = 'block';
-      var bHtml = '';
-      var now = new Date();
-      bulkTasks.forEach(function(a) {
-        var task = a.bulk_tasks || {};
-        var dl = task.deadline ? new Date(task.deadline) : null;
-        var overdue = dl && dl < now;
-        var borderColor = overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-gold-border)';
-
-        bHtml += '<div style="background:var(--te-surface);border:1px solid ' + borderColor + ';border-radius:10px;padding:14px 16px;margin-bottom:8px;">';
-        bHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
-        bHtml += '<span style="font-size:14px;font-weight:500;color:var(--te-text);">📋 ' + (task.title || 'Task') + '</span>';
-        if (dl) {
-          if (overdue) bHtml += '<span style="color:var(--te-red);font-weight:600;font-size:12px;">OVERDUE</span>';
-          else {
-            var diff = dl - now;
-            var days = Math.floor(diff / (1000*60*60*24));
-            bHtml += '<span style="color:' + (days <= 1 ? 'var(--te-red)' : 'var(--te-gold)') + ';font-weight:500;font-size:12px;">' + days + 'd left</span>';
-          }
-        }
-        bHtml += '</div>';
-        if (task.description) bHtml += '<div style="font-size:12px;color:var(--te-text-dim);line-height:1.5;margin-bottom:6px;">' + task.description.replace(/</g, '&lt;') + '</div>';
-        if (task.fine_amount > 0) bHtml += '<div style="font-size:11px;color:var(--te-red);">⚠️ Fine if missed: £' + parseFloat(task.fine_amount).toFixed(2) + '</div>';
-        bHtml += '</div>';
-      });
-
-      // Append to existing tasksDueList (don't overwrite renderTasksDue content)
-      tasksDueList.innerHTML = tasksDueList.innerHTML + bHtml;
-    }
-  } catch(e) { console.error('Error loading bulk tasks for home:', e); }
-}
-
 function renderShopItemsDynamic() {
   var rewardsEl = document.getElementById('shopRewardsList');
   var tasksEl = document.getElementById('shopTasksList');
@@ -1860,7 +1702,6 @@ function renderShopItemsDynamic() {
   if (!rewardsEl || !tasksEl || !addonsEl) return;
 
   var myId = currentProfile ? currentProfile.id : null;
-  var myTokens = currentProfile ? (currentProfile.token_balance || 0) : 0;
   var myRank = 999;
   leaderboardData.forEach(function(row) {
     if (row.profile_id === myId) myRank = row.rank_position;
@@ -1870,29 +1711,43 @@ function renderShopItemsDynamic() {
   var tasks = shopItemsData.filter(function(i) { return i.category === 'tasks'; });
   var addons = shopItemsData.filter(function(i) { return i.category === 'addons'; });
 
-  // Render rewards - locked to weekly winners only
+  // Render rewards - locked to weekly winners, hidden once claimed
   if (rewards.length === 0) { rewardsEl.innerHTML = '<div class="empty-state">No rewards available</div>'; }
   else {
     var myWinPosition = currentProfile ? (currentProfile.last_win_position || 0) : 0;
+    // Check which rewards have already been claimed (pending or approved)
+    var claimedRewardKeys = (shopOrdersData || []).filter(function(o) {
+      return o.item_type && o.item_type.startsWith('reward_') && (o.status === 'pending' || o.status === 'approved');
+    }).map(function(o) { return o.item_type; });
+    
     var rHtml = '';
     rewards.forEach(function(item) {
       var isRankReward = item.requires_rank != null;
+      var alreadyClaimed = claimedRewardKeys.indexOf(item.item_key) >= 0;
       var canClaim = false;
       var lockReason = '';
-      if (isRankReward) {
+      
+      if (alreadyClaimed) {
+        lockReason = '✅ Already claimed this week';
+      } else if (isRankReward) {
         canClaim = myWinPosition === item.requires_rank;
         if (!canClaim) lockReason = 'Only the ' + (item.requires_rank === 1 ? '1st' : (item.requires_rank === 2 ? '2nd' : '3rd')) + ' place winner this week can claim.';
       } else {
         canClaim = myTokens >= (item.token_cost || 0);
       }
+      
       var opacity = canClaim ? '1' : '0.5';
       rHtml += '<div class="reward-card" style="opacity:' + opacity + ';">';
       rHtml += '<div style="display:flex;justify-content:space-between;align-items:center;">';
       rHtml += '<div class="reward-rank">' + (item.icon || '🏆') + ' ' + item.name + (item.token_cost > 0 ? ' — ' + item.token_cost + 'T' : '') + '</div>';
-      rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? (canClaim ? '🏆 Claim' : '🔒 Locked') : 'Purchase') + '</button>';
+      if (alreadyClaimed) {
+        rHtml += '<span style="font-size:12px;color:var(--te-green);font-weight:600;">✅ Claimed</span>';
+      } else {
+        rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? (canClaim ? '🏆 Claim' : '🔒 Locked') : 'Purchase') + '</button>';
+      }
       rHtml += '</div>';
       rHtml += '<div class="reward-body" style="margin-top:8px;">' + (item.description || '') + '</div>';
-      if (lockReason && !canClaim) rHtml += '<div style="font-size:11px;color:var(--te-red);margin-top:6px;font-style:italic;">' + lockReason + '</div>';
+      if (lockReason && !canClaim) rHtml += '<div style="font-size:11px;color:' + (alreadyClaimed ? 'var(--te-green)' : 'var(--te-red)') + ';margin-top:6px;font-style:italic;">' + lockReason + '</div>';
       rHtml += '</div>';
     });
     rewardsEl.innerHTML = rHtml;
@@ -2078,24 +1933,15 @@ function drawWheel(tier) {
 
 function selectWheelTier(tier) {
   if (isSpinning) return;
-  sb.from('profiles').select('token_balance, current_balance').eq('id', currentProfile.id).single().then(function(res) {
-    if (res.data) {
-      currentProfile.token_balance = res.data.token_balance;
-      currentProfile.current_balance = res.data.current_balance;
-    }
-    var tokens = (currentProfile && currentProfile.token_balance) || 0;
-    var config = WHEEL_CONFIG[tier];
-    if (tokens < config.cost) { updateWheelButtons(); return; }
-    currentWheelTier = tier;
-    document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.classList.remove('active'); });
-    document.getElementById('sel' + tier.charAt(0).toUpperCase() + tier.slice(1)).classList.add('active');
-    drawWheel(tier);
-    var rotor = document.getElementById('wheelRotor');
-    rotor.style.transition = 'none';
-    wheelRotation = 0;
-    rotor.style.transform = 'rotate(0deg)';
-    updateWheelButtons();
-  });
+  currentWheelTier = tier;
+  document.querySelectorAll('.wheel-tier-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('sel' + tier.charAt(0).toUpperCase() + tier.slice(1)).classList.add('active');
+  drawWheel(tier);
+  var rotor = document.getElementById('wheelRotor');
+  rotor.style.transition = 'none';
+  wheelRotation = 0;
+  rotor.style.transform = 'rotate(0deg)';
+  updateWheelButtons();
 }
 
 function updateWheelButtons() {
@@ -2110,15 +1956,8 @@ function updateWheelButtons() {
 
 async function spinWheel() {
   var config = WHEEL_CONFIG[currentWheelTier];
-  try {
-    var freshData = await sb.from('profiles').select('token_balance, current_balance').eq('id', currentProfile.id).single();
-    if (freshData.data) {
-      currentProfile.token_balance = freshData.data.token_balance;
-      currentProfile.current_balance = freshData.data.current_balance;
-    }
-  } catch(e) { /* proceed with local data */ }
   var tokens = (currentProfile && currentProfile.token_balance) || 0;
-  if (tokens < config.cost || isSpinning) { updateWheelButtons(); return; }
+  if (tokens < config.cost || isSpinning) return;
   isSpinning = true;
   var mainBtn = document.getElementById('btnMainSpin');
   mainBtn.disabled = true;
@@ -2181,305 +2020,6 @@ function switchTab(el) {
   var tabId = el.getAttribute('data-tab');
   document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
   document.getElementById('tab-' + tabId).classList.add('active');
-}
-
-// ===== MY TASKS =====
-var myTasksLoaded = false;
-var ongoingTasksLoaded = false;
-var taskHistoryLoaded = false;
-
-function switchTaskTab(el, section) {
-  el.parentElement.querySelectorAll('.shop-subnav-btn').forEach(function(b) { b.classList.remove('active'); b.style.background='transparent'; b.style.color='var(--te-text-dim)'; });
-  el.classList.add('active'); el.style.background='var(--te-gold)'; el.style.color='#0a0a0a';
-  document.querySelectorAll('.task-section').forEach(function(s) { s.style.display='none'; });
-  if (section === 'ongoing') { document.getElementById('tasksOngoing').style.display='block'; loadOngoingTasks(); }
-  else if (section === 'assigned') { document.getElementById('tasksAssigned').style.display='block'; loadMyTasks(); }
-  else if (section === 'history') { document.getElementById('tasksHistory').style.display='block'; loadTaskHistory(); }
-}
-
-async function loadOngoingTasks() {
-  var container = document.getElementById('tasksOngoing');
-  if (!currentProfile) return;
-  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading...</div>';
-  try {
-    var result = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).eq('task_status', 'active').order('created_at', { ascending: false });
-    var tasks = result.data || [];
-    if (tasks.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-text-dim);font-size:14px;">No active timed tasks right now. Purchase one from the shop!</div>';
-      ongoingTasksLoaded = true;
-      return;
-    }
-    var html = '';
-    var now = new Date();
-    tasks.forEach(function(t) {
-      var daysTotal = t.task_duration_days || 0;
-      var daysCompleted = t.task_days_completed || 0;
-      var daysLeft = daysTotal - daysCompleted;
-      var pct = daysTotal > 0 ? Math.round((daysCompleted / daysTotal) * 100) : 0;
-      var endDate = t.task_end_date ? new Date(t.task_end_date) : null;
-      var overdue = endDate && endDate < now;
-      var log = t.task_checkin_log || [];
-      var today = new Date().toISOString().split('T')[0];
-      var checkedInToday = log.some(function(entry) { return entry.date === today; });
-
-      html += '<div style="background:var(--te-surface);border:1px solid ' + (overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-gold-border)') + ';border-radius:12px;padding:18px;margin-bottom:14px;">';
-      
-      // Header
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
-      html += '<div style="font-size:15px;font-weight:600;color:var(--te-text);">⏱️ ' + (t.admin_note || 'Timed Challenge') + '</div>';
-      html += '<div style="font-size:14px;font-weight:700;color:' + (daysLeft <= 1 ? 'var(--te-green)' : (overdue ? 'var(--te-red)' : 'var(--te-text)')) + ';">' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + ' left</div>';
-      html += '</div>';
-      
-      // Progress bar
-      html += '<div style="height:8px;background:var(--te-surface);border:1px solid var(--te-border);border-radius:4px;overflow:hidden;margin-bottom:12px;">';
-      html += '<div style="height:100%;width:' + pct + '%;background:' + (pct >= 100 ? 'var(--te-green)' : 'var(--te-gold)') + ';border-radius:4px;transition:width 0.3s;"></div>';
-      html += '</div>';
-      
-      // Day circles
-      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;justify-content:center;">';
-      for (var i = 0; i < daysTotal; i++) {
-        var dayDone = i < daysCompleted;
-        var logEntry = log[i] || null;
-        var isPending = logEntry && logEntry.status === 'pending';
-        var bgColor = dayDone ? (isPending ? 'rgba(201,168,76,0.3)' : 'var(--te-gold)') : 'var(--te-surface)';
-        var borderCol = dayDone ? 'var(--te-gold)' : 'var(--te-border)';
-        var txtColor = dayDone ? '#0a0a0a' : 'var(--te-text-dim)';
-        html += '<div style="width:30px;height:30px;border-radius:50%;background:' + bgColor + ';border:2px solid ' + borderCol + ';display:flex;align-items:center;justify-content:center;font-size:11px;color:' + txtColor + ';font-weight:700;">';
-        html += dayDone ? (isPending ? '⏳' : '✓') : (i + 1);
-        html += '</div>';
-      }
-      html += '</div>';
-      
-      // Info
-      html += '<div style="font-size:12px;color:var(--te-text-dim);margin-bottom:12px;text-align:center;">';
-      html += daysCompleted + ' / ' + daysTotal + ' days completed';
-      if (endDate) html += ' · Ends ' + endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      // Show total saved for Sacrifice Ledger
-      if (t.item_type === 'sacrifice_ledger' && log.length > 0) {
-        var totalSaved = log.reduce(function(sum, entry) { return sum + (parseFloat(entry.amount_saved) || 0); }, 0);
-        if (totalSaved > 0) html += '<br><span style="color:var(--te-gold);font-weight:600;">💰 £' + totalSaved.toFixed(2) + ' total sacrificed</span>';
-      }
-      html += '</div>';
-      
-      // ===== SACRIFICE LEDGER: Day 7 / Day 14 DM report prompt =====
-      if (t.item_type === 'sacrifice_ledger') {
-        // Week 1 report (Day 7)
-        if (daysCompleted >= 7 && !t.report_sent_day_7) {
-          var week1Total = 0;
-          for (var w1 = 0; w1 < Math.min(7, log.length); w1++) {
-            week1Total += parseFloat(log[w1].amount_saved) || 0;
-          }
-          html += '<div style="background:rgba(201,168,76,0.08);border:2px solid var(--te-gold);border-radius:10px;padding:16px;margin-bottom:14px;">';
-          html += '<div style="font-size:14px;font-weight:700;color:var(--te-gold);text-align:center;margin-bottom:8px;">📬 Week 1 Report Due</div>';
-          html += '<div style="font-size:12px;color:var(--te-text);line-height:1.6;margin-bottom:10px;text-align:center;">You have reached <strong>Day 7</strong>. DM <strong>Miss Sophia Truee on LoyalFans</strong> with your Week 1 report.</div>';
-          html += '<div style="background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;padding:10px;margin-bottom:10px;text-align:center;">';
-          html += '<div style="font-size:11px;color:var(--te-text-dim);margin-bottom:2px;">Your Week 1 total</div>';
-          html += '<div style="font-size:18px;font-weight:700;color:var(--te-gold);">£' + week1Total.toFixed(2) + '</div>';
-          html += '</div>';
-          html += '<div style="font-size:11px;color:var(--te-text-dim);line-height:1.5;margin-bottom:12px;">Include: total saved, what you sacrificed, what you learned. The Empress is watching.</div>';
-          html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="markReportSent(\'' + t.id + '\', 7)">✓ I have sent my Week 1 report</button>';
-          html += '</div>';
-        }
-        // Week 2 report (Day 14 — final)
-        if (daysCompleted >= 14 && !t.report_sent_day_14) {
-          var week2Total = 0;
-          for (var w2 = 7; w2 < Math.min(14, log.length); w2++) {
-            week2Total += parseFloat(log[w2].amount_saved) || 0;
-          }
-          html += '<div style="background:rgba(201,168,76,0.08);border:2px solid var(--te-gold);border-radius:10px;padding:16px;margin-bottom:14px;">';
-          html += '<div style="font-size:14px;font-weight:700;color:var(--te-gold);text-align:center;margin-bottom:8px;">📬 Final Report Due</div>';
-          html += '<div style="font-size:12px;color:var(--te-text);line-height:1.6;margin-bottom:10px;text-align:center;">You have reached <strong>Day 14</strong>. DM <strong>Miss Sophia Truee on LoyalFans</strong> with your final report.</div>';
-          html += '<div style="background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;padding:10px;margin-bottom:10px;text-align:center;">';
-          html += '<div style="font-size:11px;color:var(--te-text-dim);margin-bottom:2px;">Your Week 2 total</div>';
-          html += '<div style="font-size:18px;font-weight:700;color:var(--te-gold);">£' + week2Total.toFixed(2) + '</div>';
-          html += '</div>';
-          html += '<div style="font-size:11px;color:var(--te-text-dim);line-height:1.5;margin-bottom:12px;">Include: Week 2 total, what you sacrificed, how the challenge has changed you. Completion unlocks the next step.</div>';
-          html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="markReportSent(\'' + t.id + '\', 14)">✓ I have sent my final report</button>';
-          html += '</div>';
-        }
-      }
-
-      // Check-in button
-      if (!checkedInToday && daysCompleted < daysTotal && !overdue) {
-        html += '<button class="login-btn" style="width:100%;padding:12px;font-size:13px;margin:0;" onclick="taskCheckIn(\'' + t.id + '\', \'' + (t.item_type || 'custom_task') + '\')">📝 Check In for Today</button>';
-      } else if (checkedInToday) {
-        html += '<div style="text-align:center;padding:10px;background:rgba(92,184,122,0.1);border:1px solid rgba(92,184,122,0.3);border-radius:8px;font-size:13px;color:var(--te-green);font-weight:600;">✅ Checked in for today — awaiting approval</div>';
-      } else if (overdue) {
-        html += '<div style="text-align:center;padding:10px;background:rgba(196,92,92,0.1);border:1px solid rgba(196,92,92,0.3);border-radius:8px;font-size:13px;color:var(--te-red);font-weight:600;">⏰ Task deadline has passed</div>';
-      }
-      
-      html += '</div>';
-    });
-    container.innerHTML = html;
-    ongoingTasksLoaded = true;
-  } catch(e) {
-    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-red);font-size:13px;">Error: ' + (e.message || e) + '</div>';
-  }
-}
-
-async function taskCheckIn(orderId, itemType) {
-  if (itemType === 'sacrifice_ledger') {
-    // Show a rich check-in form for Sacrifice Ledger
-    var formHtml = '<div id="slCheckinForm" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">';
-    formHtml += '<div style="background:var(--te-surface);border:1px solid var(--te-gold-border);border-radius:12px;padding:24px;max-width:400px;width:100%;">';
-    formHtml += '<div style="font-size:18px;font-weight:600;color:var(--te-gold);text-align:center;margin-bottom:4px;">📖 Daily Sacrifice Report</div>';
-    formHtml += '<div style="font-size:12px;color:var(--te-text-dim);text-align:center;margin-bottom:20px;">Report your sacrifice to the Empress.</div>';
-    formHtml += '<div style="margin-bottom:14px;"><label style="font-size:12px;color:var(--te-text-dim);display:block;margin-bottom:4px;">Amount saved today (£)</label>';
-    formHtml += '<input type="number" id="slAmount" min="5" step="0.01" placeholder="Minimum £5" style="width:100%;padding:12px;background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;color:var(--te-text);font-size:15px;font-family:inherit;" /></div>';
-    formHtml += '<div style="margin-bottom:14px;"><label style="font-size:12px;color:var(--te-text-dim);display:block;margin-bottom:4px;">What did you sacrifice?</label>';
-    formHtml += '<textarea id="slSacrifice" rows="3" placeholder="e.g. Skipped coffee, brought lunch from home, cancelled subscription..." style="width:100%;padding:12px;background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;color:var(--te-text);font-size:14px;font-family:inherit;resize:vertical;"></textarea></div>';
-    formHtml += '<div style="margin-bottom:16px;"><label style="font-size:12px;color:var(--te-text-dim);display:block;margin-bottom:4px;">How does this serve the Truee Empire?</label>';
-    formHtml += '<textarea id="slPurpose" rows="2" placeholder="Why this sacrifice matters..." style="width:100%;padding:12px;background:var(--te-bg);border:1px solid var(--te-border);border-radius:8px;color:var(--te-text);font-size:14px;font-family:inherit;resize:vertical;"></textarea></div>';
-    formHtml += '<div style="display:flex;gap:8px;">';
-    formHtml += '<button onclick="submitSacrificeReport(\'' + orderId + '\')" style="flex:1;padding:12px;background:var(--te-gold);color:#0a0a0a;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">📝 Submit Report</button>';
-    formHtml += '<button onclick="document.getElementById(\'slCheckinForm\').remove()" style="flex:0.5;padding:12px;background:transparent;color:var(--te-text-dim);border:1px solid var(--te-border);border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit;">Cancel</button>';
-    formHtml += '</div></div></div>';
-    document.body.insertAdjacentHTML('beforeend', formHtml);
-    return;
-  }
-  // Standard check-in for other task types
-  try {
-    var result = await sb.rpc('debtor_task_checkin', { p_order_id: orderId, p_note: '' });
-    if (result.error) throw result.error;
-    var data = result.data;
-    if (data.error) { alert(data.error); return; }
-    await loadOngoingTasks();
-  } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
-}
-
-async function submitSacrificeReport(orderId) {
-  var amount = parseFloat(document.getElementById('slAmount').value) || 0;
-  var sacrifice = document.getElementById('slSacrifice').value.trim();
-  var purpose = document.getElementById('slPurpose').value.trim();
-  if (amount < 5) { alert('Minimum £5 per day. If you truly sacrificed nothing, add £5 as a lazy day tax.'); return; }
-  if (!sacrifice) { alert('You must describe what you sacrificed.'); return; }
-  var note = '£' + amount.toFixed(2) + ' saved | ' + sacrifice + (purpose ? ' | Purpose: ' + purpose : '');
-  try {
-    var result = await sb.rpc('debtor_task_checkin', { p_order_id: orderId, p_note: note, p_amount_saved: amount });
-    if (result.error) throw result.error;
-    var data = result.data;
-    if (data.error) { alert(data.error); return; }
-    document.getElementById('slCheckinForm').remove();
-    await loadOngoingTasks();
-    renderHomeActiveTasks();
-  } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
-}
-
-async function markReportSent(orderId, dayNum) {
-  var weekLabel = dayNum === 7 ? 'Week 1' : 'final';
-  if (!confirm('Confirm you have sent your ' + weekLabel + ' report to Miss Sophia Truee on LoyalFans?')) return;
-  try {
-    var updateField = dayNum === 7 ? { report_sent_day_7: new Date().toISOString() } : { report_sent_day_14: new Date().toISOString() };
-    var result = await sb.from('shop_orders').update(updateField).eq('id', orderId);
-    if (result.error) throw result.error;
-    await loadOngoingTasks();
-  } catch(e) { alert('Error: ' + (e.message || 'Unknown error')); }
-}
-
-async function loadTaskHistory() {
-  var container = document.getElementById('tasksHistoryList');
-  if (!currentProfile) return;
-  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading...</div>';
-  try {
-    // Get completed/fined bulk task assignments
-    var bulkResult = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, fine_amount)').eq('profile_id', currentProfile.id).in('status', ['completed', 'fined']).order('created_at', { ascending: false });
-    var bulkHistory = bulkResult.data || [];
-    
-    // Get completed/failed timed tasks from shop_orders
-    var timedResult = await sb.from('shop_orders').select('*').eq('profile_id', currentProfile.id).in('task_status', ['completed', 'failed']).order('created_at', { ascending: false });
-    var timedHistory = timedResult.data || [];
-    
-    if (bulkHistory.length === 0 && timedHistory.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-text-dim);font-size:14px;">No completed tasks yet.</div>';
-      taskHistoryLoaded = true;
-      return;
-    }
-    
-    var html = '';
-    
-    // Timed task history
-    timedHistory.forEach(function(t) {
-      var isComplete = t.task_status === 'completed';
-      html += '<div style="background:var(--te-surface);border:1px solid ' + (isComplete ? 'rgba(92,184,122,0.3)' : 'rgba(196,92,92,0.3)') + ';border-radius:10px;padding:14px 16px;margin-bottom:8px;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-      html += '<div style="font-size:14px;font-weight:600;color:' + (isComplete ? 'var(--te-green)' : 'var(--te-red)') + ';">' + (isComplete ? '✅' : '❌') + ' ' + (t.admin_note || 'Timed Challenge') + '</div>';
-      html += '<div style="font-size:11px;color:var(--te-text-dim);">' + (t.task_days_completed || 0) + '/' + (t.task_duration_days || 0) + ' days</div>';
-      html += '</div>';
-      html += '</div>';
-    });
-    
-    // Bulk task history
-    bulkHistory.forEach(function(a) {
-      var task = a.bulk_tasks || {};
-      var isComplete = a.status === 'completed';
-      html += '<div style="background:var(--te-surface);border:1px solid ' + (isComplete ? 'rgba(92,184,122,0.3)' : 'rgba(196,92,92,0.3)') + ';border-radius:10px;padding:14px 16px;margin-bottom:8px;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-      html += '<div style="font-size:14px;font-weight:600;color:' + (isComplete ? 'var(--te-green)' : 'var(--te-red)') + ';">' + (isComplete ? '✅' : '⚠️') + ' ' + (task.title || 'Task') + '</div>';
-      html += '<div style="font-size:11px;color:var(--te-text-dim);">' + (isComplete ? 'Completed' : 'Fined') + '</div>';
-      html += '</div>';
-      if (a.completed_at) html += '<div style="font-size:11px;color:var(--te-text-dim);margin-top:4px;">' + new Date(a.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>';
-      if (a.fined_at) html += '<div style="font-size:11px;color:var(--te-red);margin-top:4px;">Fined ' + new Date(a.fined_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + (task.fine_amount ? ' — £' + parseFloat(task.fine_amount).toFixed(2) : '') + '</div>';
-      html += '</div>';
-    });
-    
-    container.innerHTML = html;
-    taskHistoryLoaded = true;
-  } catch(e) {
-    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-red);font-size:13px;">Error: ' + (e.message || e) + '</div>';
-  }
-}
-
-async function loadMyTasks() {
-  if (myTasksLoaded) return;
-  var container = document.getElementById('tasksList');
-  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div>Loading tasks...</div>';
-  try {
-    var result = await sb.from('bulk_task_assignments').select('*, bulk_tasks!inner(title, description, deadline, fine_amount)').eq('profile_id', currentProfile.id).order('created_at', { ascending: false });
-    var assignments = result.data || [];
-    if (result.error) throw result.error;
-    if (assignments.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-text-dim);font-size:14px;">No tasks assigned yet. Check back soon.</div>';
-      myTasksLoaded = true;
-      return;
-    }
-    var html = '';
-    assignments.forEach(function(a) {
-      var task = a.bulk_tasks || {};
-      var dl = task.deadline ? new Date(task.deadline) : null;
-      var overdue = dl && dl < new Date() && a.status === 'assigned';
-      var statusColor = a.status === 'completed' ? 'var(--te-green)' : (a.status === 'fined' ? 'var(--te-red)' : (overdue ? 'var(--te-red)' : 'var(--te-gold)'));
-      var statusIcon = a.status === 'completed' ? '✅' : (a.status === 'fined' ? '⚠️' : (overdue ? '⏰' : '📋'));
-      var statusLabel = a.status === 'completed' ? 'Completed' : (a.status === 'fined' ? 'Fined' : (overdue ? 'OVERDUE' : 'Assigned'));
-      html += '<div style="background:var(--te-surface);border:1px solid ' + (overdue ? 'rgba(196,92,92,0.4)' : 'var(--te-border)') + ';border-radius:10px;padding:16px;margin-bottom:12px;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
-      html += '<div style="font-size:15px;font-weight:600;color:var(--te-text);flex:1;">' + statusIcon + ' ' + (task.title || 'Task') + '</div>';
-      html += '<div style="font-size:11px;font-weight:600;color:' + statusColor + ';text-transform:uppercase;letter-spacing:0.5px;flex-shrink:0;margin-left:8px;">' + statusLabel + '</div>';
-      html += '</div>';
-      if (task.description) {
-        html += '<div style="font-size:13px;color:var(--te-text-dim);line-height:1.6;margin-bottom:10px;white-space:pre-wrap;">' + task.description.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
-      }
-      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
-      if (dl) {
-        var deadlineStr = dl.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ' at ' + dl.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-        html += '<div style="font-size:11px;color:' + (overdue ? 'var(--te-red)' : 'var(--te-text-dim)') + ';"><span style="font-weight:600;">⏰ Deadline:</span> ' + deadlineStr + '</div>';
-      }
-      if (task.fine_amount > 0 && a.status === 'assigned') {
-        html += '<div style="font-size:11px;color:var(--te-red);"><span style="font-weight:600;">⚠️ Fine if missed:</span> £' + parseFloat(task.fine_amount).toFixed(2) + '</div>';
-      }
-      if (a.completed_at) {
-        html += '<div style="font-size:11px;color:var(--te-green);"><span style="font-weight:600;">✅ Completed:</span> ' + new Date(a.completed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>';
-      }
-      if (a.fined_at) {
-        html += '<div style="font-size:11px;color:var(--te-red);"><span style="font-weight:600;">Fined:</span> ' + new Date(a.fined_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>';
-      }
-      html += '</div>';
-      html += '</div>';
-    });
-    container.innerHTML = html;
-    myTasksLoaded = true;
-  } catch(e) {
-    container.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--te-red);font-size:13px;">Error loading tasks: ' + (e.message || e) + '</div>';
-  }
 }
 
 // ===== SHOP SUB-NAVIGATION =====
