@@ -786,12 +786,28 @@ function Dashboard({ profiles, activity, onView, alerts, privacyMode, alertPrefs
   );
 }
 
-function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
+function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity }) {
   const [q, setQ] = useState('');
+  const [messaged, setMessaged] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('te_messaged') || '{}'); } catch { return {}; }
+  });
+  const [spinDone, setSpinDone] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('te_spin_done') || '{}'); } catch { return {}; }
+  });
+  const toggleMessaged = (e, id) => { e.stopPropagation(); const nxt = {...messaged, [id]: !messaged[id]}; setMessaged(nxt); localStorage.setItem('te_messaged', JSON.stringify(nxt)); };
+  const toggleSpin = (e, id) => { e.stopPropagation(); const nxt = {...spinDone, [id]: !spinDone[id]}; setSpinDone(nxt); localStorage.setItem('te_spin_done', JSON.stringify(nxt)); };
+  useEffect(() => {
+    if (!activity || activity.length === 0) return;
+    const weekStart = getWeekStart(new Date()); const updated = {...messaged}; let changed = false;
+    profiles.forEach(p => { if (messaged[p.id]) { const hasPay = activity.some(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment') && new Date(a.created_at) >= weekStart); if (hasPay) { updated[p.id] = false; changed = true; } } });
+    if (changed) { setMessaged(updated); localStorage.setItem('te_messaged', JSON.stringify(updated)); }
+  }, [activity, profiles]);
+  useEffect(() => {
+    const lastReset = localStorage.getItem('te_spin_reset_week'); const thisWeek = getWeekStart(new Date()).toISOString();
+    if (lastReset !== thisWeek) { setSpinDone({}); localStorage.setItem('te_spin_done', '{}'); localStorage.setItem('te_spin_reset_week', thisWeek); setMessaged({}); localStorage.setItem('te_messaged', '{}'); }
+  }, []);
   const fl = profiles.filter(p => {
-    const s=q.toLowerCase();
-    if (!s) return true;
-    const un = usernames[p.debtor_number] || '';
+    const s=q.toLowerCase(); if (!s) return true; const un = usernames[p.debtor_number] || '';
     return (p.display_name||'').toLowerCase().includes(s) || (p.debtor_number||'').toLowerCase().includes(s) || un.toLowerCase().includes(s);
   });
   return (
@@ -800,32 +816,42 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode }) {
       <div className="search-bar"><span className="search-icon">🔍</span><input placeholder="Search debtors..." value={q} onChange={e=>setQ(e.target.value)} /></div>
       <div className="debtor-list">
         {fl.map(p=>{
-          const st = stips.find(s=>s.profile_id===p.id);
-          const un = usernames[p.debtor_number];
+          const st = stips.find(s=>s.profile_id===p.id); const un = usernames[p.debtor_number];
+          const weeklyMin = parseFloat(p.weekly_payment) || parseFloat(st?.weekly_payment) || 0;
+          const weekPaid = activity ? calcWeeklyPaid(p.id, activity.filter(a=>a.profile_id===p.id).map(a=>({...a,profile_id:p.id}))) : 0;
+          const paidFull = weeklyMin > 0 && weekPaid >= weeklyMin;
+          const lastPay = activity ? activity.find(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment')) : null;
+          const daysSince = lastPay ? (Date.now() - new Date(lastPay.created_at).getTime()) / (1000*60*60*24) : 999;
+          const isOverdue = daysSince > 7 && !paidFull;
+          const borderColor = paidFull ? 'rgba(76,175,80,0.5)' : (isOverdue ? 'rgba(231,76,60,0.4)' : 'var(--border)');
+          const bgColor = paidFull ? 'rgba(76,175,80,0.04)' : (isOverdue ? 'rgba(231,76,60,0.04)' : 'var(--bg-card)');
           return (
-          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)}>
+          <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)} style={{borderColor:borderColor,background:bgColor}}>
             <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name">{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
+              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>{paidFull && '✅ '}{isOverdue && '🚨 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
               {!privacyMode && un && <div className="debtor-username">@{un}</div>}
               <div className="debtor-meta">
                 {!privacyMode && <span>{p.debtor_number}</span>}
                 {p.tier&&<span className={`tb ${tc(p.tier)}`}>{p.tier}</span>}
                 {st&&st.payment_day&&<span style={{fontSize:'10px'}}>📅 {st.payment_day}</span>}
               </div>
-              {st && (
-                <div className="debtor-contract-info">
-                  {st.weekly_payment && <span>💳 {fmt(st.weekly_payment)}/wk</span>}
-                  {st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}
-                </div>
-              )}
+              {st && (<div className="debtor-contract-info">{st.weekly_payment && <span>💳 {fmt(st.weekly_payment)}/wk</span>}{st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}</div>)}
+              <div style={{display:'flex',gap:'12px',marginTop:'6px',fontSize:'11px'}}>
+                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: messaged[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
+                  <input type="checkbox" checked={!!messaged[p.id]} onChange={e=>toggleMessaged(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} /> 📨 Messaged
+                </label>
+                <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: spinDone[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
+                  <input type="checkbox" checked={!!spinDone[p.id]} onChange={e=>toggleSpin(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} /> 🎡 Spin done
+                </label>
+                {weeklyMin > 0 && <span style={{color: paidFull ? 'var(--green)' : 'var(--text-muted)'}}>{fmt(weekPaid)}/{fmt(weeklyMin)}</span>}
+              </div>
             </div>
             <div>
-              <div className="debtor-balance">{fmt(p.current_balance)}</div>
+              <div className="debtor-balance" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--gold)')}}>{fmt(p.current_balance)}</div>
               {p.weekly_payment && <div className="debtor-weekly">{fmt(p.weekly_payment)}/wk</div>}
             </div>
-          </div>
-          );
+          </div>);
         })}
         {fl.length===0&&<div className="empty-state">No debtors found</div>}
       </div>
@@ -1262,51 +1288,23 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
     if (!sid||ca<=0) { setErr('Fill in all fields with valid amounts'); return; }
     setLd(true); setErr(''); setOk('');
     try {
-      // Build wheel data if applicable
       let wheelData = null;
       if (isInt && sendSpinNotif && lastWheelData) {
-        wheelData = {
-          segments: lastWheelData.segments,
-          result_index: lastWheelData.idx,
-          result_pct: parseFloat(pct),
-          interest_amount: parseFloat(ca) || 0,
-          new_balance: parseFloat(nb) || 0,
-          show_animation: true
-        };
+        wheelData = { segments: lastWheelData.segments, result_index: lastWheelData.idx, result_pct: parseFloat(pct), interest_amount: parseFloat(ca) || 0, new_balance: parseFloat(nb) || 0, show_animation: true };
       }
-      
-      // Skip notification for interest wheel spins if toggle is off
       const shouldNotify = !(isInt && lastWheelData && !sendSpinNotif);
-
-      // Call server-side function — handles ledger, balance, tokens, notifications
       const result = await sf('/rest/v1/rpc/admin_add_transaction', {
         method: 'POST',
         body: JSON.stringify({
-          p_profile_id: sid,
-          p_entry_type: type,
-          p_amount: ca,
-          p_admin_fee: fee,
-          p_description: notes || null,
-          p_payment_method: payMethod || null,
-          p_interest_pct: isInt ? parseFloat(pct) : null,
-          p_wheel_data: wheelData,
-          p_send_notification: shouldNotify
+          p_profile_id: sid, p_entry_type: type, p_amount: ca, p_admin_fee: fee,
+          p_description: notes || null, p_payment_method: payMethod || null,
+          p_interest_pct: isInt ? parseFloat(pct) : null, p_wheel_data: wheelData, p_send_notification: shouldNotify
         })
       });
-
-      if (result?.error) {
-        setErr(result.error);
-        setLd(false);
-        return;
-      }
-
+      if (result?.error) { setErr(result.error); setLd(false); return; }
       let okMsg = `✅ ${result.entry_type} of ${fmt(result.amount)}${result.admin_fee>0?` + ${fmt(result.admin_fee)} fee`:''} recorded for ${result.debtor || pr?.display_name}. New balance: ${fmt(result.new_balance)}`;
-      if (result.tokens_awarded > 0) {
-        okMsg += `. 🪙 ${result.tokens_awarded} tokens!`;
-        if (result.is_overpay) okMsg += ` (2x overpay bonus — weekly total ${fmt(result.weekly_paid_after)} > ${fmt(result.weekly_min)} min)`;
-      }
+      if (result.tokens_awarded > 0) { okMsg += `. 🪙 ${result.tokens_awarded} tokens!`; if (result.is_overpay) okMsg += ` (2x overpay bonus — weekly total ${fmt(result.weekly_paid_after)} > ${fmt(result.weekly_min)} min)`; }
       if (shouldNotify) okMsg += '\n📨 Notification sent to debtor.';
-
       setOk(okMsg);
       setAmt(''); setPct(''); setNotes(''); setPayMethod(''); setShowWheel(false);
       onDone?.();
@@ -2971,7 +2969,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       {dl&&profs.length===0 ? <div className="loading-screen" style={{minHeight:'60vh'}}><div className="spinner"/><span>Loading empire data...</span></div> : <>
         {pg==='dashboard'&&<Dashboard profiles={profs} activity={act} onView={vd} alerts={alerts} privacyMode={privacyMode} alertPrefs={alertPrefs} onDismiss={dismissAlert} onTogglePref={toggleAlertPref} />}
         {pg==='leaderboard'&&<AdminLeaderboard leaderboardData={lbData} profiles={profs} privacyMode={privacyMode} onView={vd} onRefresh={load} />}
-        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} />}
+        {pg==='debtors'&&<DebtorList profiles={profs} onView={vd} stips={stips} usernames={usernames} privacyMode={privacyMode} activity={act} />}
         {pg==='detail'&&<Detail pid={sel} onBack={()=>setPg('debtors')} usernames={usernames} privacyMode={privacyMode} onUsernameUpdate={load} />}
         {pg==='add'&&<AddTx profiles={profs} stips={stips} onDone={load} privacyMode={privacyMode} />}
         {pg==='approvals'&&<Approvals pending={pendingTx} onDone={load} privacyMode={privacyMode} />}
