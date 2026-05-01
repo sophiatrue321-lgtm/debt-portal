@@ -1303,7 +1303,7 @@ async function loadTokens() {
 }
 
 async function loadStipulations() {
-  var result = await sb.from('stipulations').select('*').eq('profile_id', currentProfile.id).single();
+  var result = await sb.from('stipulations').select('*').eq('profile_id', currentProfile.id).maybeSingle();
   stipData = result.error ? null : result.data;
 }
 
@@ -1492,6 +1492,7 @@ function renderShopOrders() {
     'lines': '📝 Lines',
     'interest_shield': '🛡️ Interest Shield',
     'custom_task': '🎯 Custom Task',
+    'sacrifice_ledger': '📜 Sacrifice Ledger',
     'reward_1st': '🏆 1st Place Reward',
     'reward_2nd': '🥈 2nd Place Reward',
     'reward_3rd': '🥉 3rd Place Reward'
@@ -1702,6 +1703,7 @@ function renderShopItemsDynamic() {
   if (!rewardsEl || !tasksEl || !addonsEl) return;
 
   var myId = currentProfile ? currentProfile.id : null;
+  var myTokens = currentProfile ? (currentProfile.token_balance || 0) : 0;
   var myRank = 999;
   leaderboardData.forEach(function(row) {
     if (row.profile_id === myId) myRank = row.rank_position;
