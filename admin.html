@@ -415,6 +415,7 @@ const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,
 const getAllShopOrders = () => sf('/rest/v1/shop_orders?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=100');
 const markAddonUsed = (id) => sf('/rest/v1/rpc/admin_mark_addon_used', { method: 'POST', body: JSON.stringify({ p_order_id: id }) });
 const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&item_type=in.(interest_shield,fine_shield,task_shield)&select=*&order=created_at.desc');
+const resetUserPassword = (pid) => sf('/rest/v1/rpc/admin_reset_user_password', { method: 'POST', body: JSON.stringify({ p_profile_id: pid }) });
 const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
 const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
 const getAllTasks = () => sf('/rest/v1/tasks?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=200');
@@ -919,6 +920,122 @@ function LowWheelTracker({ st, pid }) {
   );
 }
 
+function PasswordResetButton({ pid, debtorName, debtorNum }) {
+  const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const doReset = async () => {
+    setResetting(true); setErr('');
+    try {
+      const r = await resetUserPassword(pid);
+      if (r?.success) {
+        setResult(r);
+        setConfirming(false);
+      } else {
+        setErr('Reset failed — unexpected response');
+      }
+    } catch(e) {
+      setErr('Error: ' + e.message);
+    }
+    setResetting(false);
+  };
+
+  const copyPw = async () => {
+    if (!result?.temp_password) return;
+    try {
+      await navigator.clipboard.writeText(result.temp_password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch(e) {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = result.temp_password;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const copyMessage = async () => {
+    if (!result?.temp_password) return;
+    const msg = `NEW temp password!\n${result.temp_password}\nLog in and set your own password — I've updated the back end 😈`;
+    try {
+      await navigator.clipboard.writeText(msg);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch(e) {
+      const ta = document.createElement('textarea');
+      ta.value = msg;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  if (result) {
+    return (
+      <div style={{background:'rgba(76,175,80,0.08)',border:'2px solid rgba(76,175,80,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
+        <div style={{fontSize:'14px',fontWeight:700,color:'var(--green)',marginBottom:'10px'}}>✅ Password reset complete</div>
+        <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px',lineHeight:1.6}}>
+          Temporary password for <strong style={{color:'var(--text)'}}>D{result.debtor_number} {result.display_name}</strong>:
+        </div>
+        <div style={{background:'var(--bg-input)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px',fontFamily:'monospace',fontSize:'15px',color:'var(--gold)',wordBreak:'break-all',textAlign:'center'}}>
+          {result.temp_password}
+        </div>
+        <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
+          <button className="btn btn-sm" onClick={copyPw} style={{flex:1}}>
+            {copied ? '✓ Copied!' : '📋 Copy Password'}
+          </button>
+          <button className="btn btn-sm btn-outline" onClick={copyMessage} style={{flex:1}}>
+            📨 Copy DM Message
+          </button>
+        </div>
+        <div style={{fontSize:'11px',color:'var(--text-muted)',lineHeight:1.5}}>
+          Send this to the debtor. They'll be forced to set a new password on first login. This dialog will close when you leave the page.
+        </div>
+        <button className="btn btn-sm btn-outline" onClick={()=>setResult(null)} style={{width:'100%',marginTop:'10px',fontSize:'11px'}}>
+          Close
+        </button>
+      </div>
+    );
+  }
+
+  if (confirming) {
+    return (
+      <div style={{background:'rgba(231,76,60,0.08)',border:'2px solid rgba(231,76,60,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
+        <div style={{fontSize:'14px',fontWeight:700,color:'var(--red)',marginBottom:'8px'}}>⚠️ Reset password for {debtorNum} {debtorName}?</div>
+        <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px',lineHeight:1.6}}>
+          This will invalidate their current password and generate a new temporary one. They'll need to log in with the temp password and set a new one.
+        </div>
+        {err && <div className="error-msg" style={{marginBottom:'10px'}}>{err}</div>}
+        <div style={{display:'flex',gap:'8px'}}>
+          <button className="btn btn-danger" onClick={doReset} disabled={resetting} style={{flex:1}}>
+            {resetting ? <span className="spinner"/> : '🔑 Yes, Reset Password'}
+          </button>
+          <button className="btn btn-outline" onClick={()=>{setConfirming(false);setErr('');}} disabled={resetting} style={{flex:1}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button className="btn btn-outline btn-sm" onClick={()=>setConfirming(true)} style={{width:'100%',marginBottom:'16px'}}>
+      🔑 Reset Password
+    </button>
+  );
+}
+  
 function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
   const [pr, setPr] = useState(null);
   const [lg, setLg] = useState([]);
@@ -985,6 +1102,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         <div className="detail-id">{pr.debtor_number}{pr.tier&&<span className={`tb ${tc(pr.tier)}`}>{pr.tier}</span>}</div>
         <div className="detail-balance">{fmt(pr.current_balance)}</div>
       </div>
+      <PasswordResetButton pid={pid} debtorName={displayName} debtorNum={pr.debtor_number} />
       {/* Weekly Payment Progress */}
       {weeklyMin > 0 && (
         <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'16px'}}>
