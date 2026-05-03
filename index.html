@@ -1275,6 +1275,11 @@ async function loadApp(user) {
     return;
   }
   currentProfile = profileRes.data;
+  // Force password change if flagged
+  if (currentProfile.must_change_password) {
+    showForcedPasswordChange();
+    return;
+  }
   var name = currentProfile.display_name || 'Debtor';
   var code = currentProfile.debtor_code || currentProfile.debtor_number || '';
   document.getElementById('userDisplayName').textContent = code || name;
@@ -2038,7 +2043,79 @@ function filterLedger(el, filter) {
   el.classList.add('active');
   renderLedger(filter);
 }
+function showForcedPasswordChange() {
+  document.getElementById('appWrap').classList.remove('visible');
+  document.getElementById('loginScreen').style.display = 'none';
 
+  // Build forced password change overlay
+  var existing = document.getElementById('forcedPwOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'forcedPwOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:var(--te-bg);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1.5rem;';
+  overlay.innerHTML =
+    '<div style="max-width:340px;width:100%;text-align:center;">' +
+      '<div style="font-family:Cormorant Garamond,serif;font-size:32px;font-weight:500;color:var(--te-gold);letter-spacing:6px;text-transform:uppercase;margin-bottom:8px;">Set Your Password</div>' +
+      '<div style="font-size:12px;color:var(--te-gold-dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:24px;">First-time login — choose a new password</div>' +
+      '<input class="login-field" type="password" id="forcedPwNew" placeholder="New password (min 6 chars)" autocomplete="new-password">' +
+      '<input class="login-field" type="password" id="forcedPwConfirm" placeholder="Confirm new password" autocomplete="new-password">' +
+      '<button class="login-btn" id="forcedPwBtn" onclick="handleForcedPasswordChange()">Set password & continue</button>' +
+      '<div class="login-error" id="forcedPwError"></div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+}
+
+async function handleForcedPasswordChange() {
+  var pw = document.getElementById('forcedPwNew').value;
+  var confirm = document.getElementById('forcedPwConfirm').value;
+  var errorEl = document.getElementById('forcedPwError');
+  var btn = document.getElementById('forcedPwBtn');
+  errorEl.textContent = '';
+
+  if (!pw || !confirm) { errorEl.textContent = 'Enter your new password in both fields.'; return; }
+  if (pw.length < 6) { errorEl.textContent = 'Password must be at least 6 characters.'; return; }
+  if (pw !== confirm) { errorEl.textContent = 'Passwords do not match.'; return; }
+
+  btn.disabled = true; btn.textContent = 'UPDATING...';
+  try {
+    // Update password
+    var pwResult = await sb.auth.updateUser({ password: pw });
+    if (pwResult.error) throw pwResult.error;
+
+    // Clear the must_change_password flag
+    var clearResult = await sb.from('profiles').update({ must_change_password: false }).eq('id', currentProfile.id);
+    if (clearResult.error) throw clearResult.error;
+
+    currentProfile.must_change_password = false;
+
+    // Remove overlay and continue loading the app
+    var overlay = document.getElementById('forcedPwOverlay');
+    if (overlay) overlay.remove();
+
+    document.getElementById('appWrap').classList.add('visible');
+
+    // Continue with the rest of loadApp
+    var name = currentProfile.display_name || 'Debtor';
+    var code = currentProfile.debtor_code || currentProfile.debtor_number || '';
+    document.getElementById('userDisplayName').textContent = code || name;
+    document.getElementById('userAvatar').textContent = code ? code.replace(/\D/g, '') : name.charAt(0).toUpperCase();
+
+    await Promise.all([loadLedger(), loadTokens(), loadStipulations(), loadSubmissions(), loadNotifications(), loadLeaderboard(), loadShopOrders(), loadTasks(), loadShopItems()]);
+    renderProfile();
+    renderInfo();
+    renderStipulations();
+    renderLeaderboard();
+    updateWheelButtons();
+    drawWheel(currentWheelTier);
+    var dateInput = document.getElementById('submitDate');
+    if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+  } catch(err) {
+    errorEl.textContent = 'Failed to update: ' + (err.message || 'Unknown error');
+    btn.disabled = false;
+    btn.textContent = 'Set password & continue';
+  }
+}
 // ===== PASSWORD CHANGE =====
 function showPasswordModal() {
   document.getElementById('passwordModal').style.display = 'flex';
