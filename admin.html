@@ -424,6 +424,9 @@ const getShopItems = () => sf('/rest/v1/shop_items?select=*&order=category.asc,s
 const assignTask = (pid, title, desc, due, type) => sf('/rest/v1/rpc/admin_assign_task', { method: 'POST', body: JSON.stringify({ p_profile_id: pid, p_title: title, p_description: desc || null, p_due_date: due || null, p_task_type: type || 'admin_assigned' }) });
 const acceptTask = (id, note) => sf('/rest/v1/rpc/admin_accept_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_note: note || null }) });
 const fineTask = (id, amount, note) => sf('/rest/v1/rpc/admin_fine_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_fine_amount: amount, p_note: note || null }) });
+const markTaskDay = (orderId, note) => sf('/rest/v1/rpc/admin_mark_task_day', { method: 'POST', body: JSON.stringify({ p_order_id: orderId, p_note: note || null }) });
+const undoTaskDay = (orderId) => sf('/rest/v1/rpc/admin_undo_task_day', { method: 'POST', body: JSON.stringify({ p_order_id: orderId }) });
+const getShopOrderById = (id) => sf('/rest/v1/shop_orders?id=eq.' + id + '&select=*');
 const getPendingTx = () => sf('/rest/v1/pending_transactions?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,current_balance)&order=created_at.desc');
 
 const insertLedger = (e) => sf('/rest/v1/ledger', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
@@ -2449,6 +2452,12 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
 
+  // Day tracker (multi-day challenges) state
+  const [dayTrackerTask, setDayTrackerTask] = useState(null);   // the task row from tasks table
+  const [dayTrackerOrder, setDayTrackerOrder] = useState(null); // the linked shop_order with task_* fields
+  const [dayTrackerLoading, setDayTrackerLoading] = useState(false);
+  const [dayTrackerErr, setDayTrackerErr] = useState('');
+
   // Assign task form
   const [assignPid, setAssignPid] = useState('');
   const [assignTitle, setAssignTitle] = useState('');
@@ -2495,6 +2504,82 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
       }
     } catch(e) { setErr('Error: ' + e.message); }
     setAssigning(false);
+  };
+
+  // ===== Day tracker (multi-day challenges) =====
+  const openDayTracker = async (task) => {
+    setDayTrackerTask(task);
+    setDayTrackerOrder(null);
+    setDayTrackerErr('');
+    setDayTrackerLoading(true);
+    try {
+      if (!task.shop_order_id) {
+        setDayTrackerErr('This task has no linked shop order — only multi-day challenges support day tracking.');
+        setDayTrackerLoading(false);
+        return;
+      }
+      const rows = await getShopOrderById(task.shop_order_id);
+      const order = Array.isArray(rows) ? rows[0] : rows;
+      if (!order) {
+        setDayTrackerErr('Linked shop order not found.');
+      } else if (!order.task_duration_days) {
+        setDayTrackerErr('This task is not a multi-day challenge. Wait for the debtor to mark it complete in their portal.');
+      } else {
+        setDayTrackerOrder(order);
+      }
+    } catch(e) {
+      setDayTrackerErr('Failed to load: ' + e.message);
+    }
+    setDayTrackerLoading(false);
+  };
+
+  const closeDayTracker = () => {
+    setDayTrackerTask(null);
+    setDayTrackerOrder(null);
+    setDayTrackerErr('');
+  };
+
+  const doMarkDay = async () => {
+    if (!dayTrackerOrder) return;
+    setLd(true); setDayTrackerErr('');
+    try {
+      const result = await markTaskDay(dayTrackerOrder.id, null);
+      if (result?.error) {
+        setDayTrackerErr(result.error);
+      } else {
+        // Refresh the order to show the new state
+        const rows = await getShopOrderById(dayTrackerOrder.id);
+        const fresh = Array.isArray(rows) ? rows[0] : rows;
+        if (fresh) setDayTrackerOrder(fresh);
+        if (result?.is_done) {
+          setOk('🎉 ' + dayTrackerTask.title + ' completed for ' + (dayTrackerTask.profiles?.debtor_number || ''));
+          // When all days done, also accept the parent task so it leaves the active tab
+          try { await acceptTask(dayTrackerTask.id, 'All ' + result.total_days + ' days completed'); } catch(e) {}
+          onDone?.();
+          closeDayTracker();
+        } else {
+          onDone?.();
+        }
+      }
+    } catch(e) { setDayTrackerErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  const doUndoDay = async () => {
+    if (!dayTrackerOrder) return;
+    setLd(true); setDayTrackerErr('');
+    try {
+      const result = await undoTaskDay(dayTrackerOrder.id);
+      if (result?.error) {
+        setDayTrackerErr(result.error);
+      } else {
+        const rows = await getShopOrderById(dayTrackerOrder.id);
+        const fresh = Array.isArray(rows) ? rows[0] : rows;
+        if (fresh) setDayTrackerOrder(fresh);
+        onDone?.();
+      }
+    } catch(e) { setDayTrackerErr('Error: ' + e.message); }
+    setLd(false);
   };
 
   return (
@@ -2553,21 +2638,96 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
         </div>
       )}
 
-      {tab === 'active' && (
+      {tab === 'active' && !dayTrackerTask && (
         active.length === 0 ? <div className="empty-state">No active tasks</div> :
         <div className="feed-list">{active.map(t => {
           const due = t.due_date ? new Date(t.due_date) : null;
           const isOverdue = due && due < new Date();
           return (
-            <div className="feed-item" key={t.id} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px'}}>
+            <div className="feed-item" key={t.id} onClick={()=>openDayTracker(t)} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px',cursor:'pointer'}}>
               <div className="feed-icon" style={{background:isOverdue?'rgba(231,76,60,0.15)':'rgba(201,168,76,0.15)'}}>{isOverdue?'🚨':'📋'}</div>
               <div className="feed-body">
                 <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
                 <div className="feed-time">{due ? (isOverdue?'OVERDUE — was due ':'Due: ')+fmtD(t.due_date) : 'No deadline'} · Assigned {ago(t.created_at)}</div>
               </div>
+              <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
             </div>
           );
         })}</div>
+      )}
+
+      {tab === 'active' && dayTrackerTask && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'16px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+            <div style={{fontSize:'16px',fontWeight:600,color:'var(--gold)'}}>{dayTrackerTask.title}</div>
+            <button className="btn btn-sm btn-outline" onClick={closeDayTracker}>✕</button>
+          </div>
+          <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px'}}>
+            <strong>{dayTrackerTask.profiles?.debtor_number} {privacyMode?'':dayTrackerTask.profiles?.display_name}</strong>
+            {dayTrackerTask.due_date && ` · Due ${fmtD(dayTrackerTask.due_date)}`}
+          </div>
+
+          {dayTrackerLoading && <div className="empty-state">Loading...</div>}
+          {dayTrackerErr && <div className="error-msg" style={{marginBottom:'12px'}}>{dayTrackerErr}</div>}
+
+          {dayTrackerOrder && (() => {
+            const total = dayTrackerOrder.task_duration_days || 0;
+            const done = dayTrackerOrder.task_days_completed || 0;
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const log = Array.isArray(dayTrackerOrder.task_checkin_log) ? dayTrackerOrder.task_checkin_log : [];
+            const isComplete = done >= total;
+            return (
+              <div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'8px'}}>
+                  <span style={{fontSize:'24px',fontWeight:600,color:'var(--gold)'}}>{done} / {total} days</span>
+                  <span style={{fontSize:'13px',color:'var(--text-dim)'}}>{pct}%</span>
+                </div>
+                <div style={{height:'6px',background:'var(--bg-input)',borderRadius:'3px',overflow:'hidden',marginBottom:'16px'}}>
+                  <div style={{height:'100%',width:pct+'%',background:isComplete?'var(--green)':'var(--gold)',transition:'width 0.3s ease'}} />
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'8px',marginBottom:'16px'}}>
+                  {Array.from({length: total}, (_, i) => {
+                    const dayNum = i + 1;
+                    const isDone = dayNum <= done;
+                    const entry = log.find(l => l && l.day === dayNum);
+                    const dateStr = entry?.date ? new Date(entry.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '';
+                    return (
+                      <div key={dayNum} style={{
+                        padding:'10px 6px',
+                        textAlign:'center',
+                        background: isDone ? 'rgba(46,204,113,0.12)' : 'var(--bg-input)',
+                        border: '1px solid ' + (isDone ? 'var(--green)' : 'var(--border)'),
+                        borderRadius:'var(--radius-sm)',
+                        fontSize:'12px'
+                      }}>
+                        <div style={{fontSize:'18px',marginBottom:'2px'}}>{isDone?'✅':'⬜'}</div>
+                        <div style={{fontWeight:600,color: isDone?'var(--green)':'var(--text-dim)'}}>Day {dayNum}</div>
+                        {dateStr && <div style={{fontSize:'10px',color:'var(--text-dim)',marginTop:'2px'}}>{dateStr}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!isComplete && (
+                  <button className="btn" onClick={doMarkDay} disabled={ld} style={{width:'100%',marginBottom:'8px'}}>
+                    {ld ? <span className="spinner"/> : '✅ Mark Day ' + (done + 1) + ' Complete'}
+                  </button>
+                )}
+                {done > 0 && (
+                  <button className="btn btn-outline btn-sm" onClick={doUndoDay} disabled={ld} style={{width:'100%'}}>
+                    {ld ? <span className="spinner"/> : '↩ Undo last day'}
+                  </button>
+                )}
+                {isComplete && (
+                  <div style={{textAlign:'center',padding:'12px',background:'rgba(46,204,113,0.1)',border:'1px solid var(--green)',borderRadius:'var(--radius-sm)',color:'var(--green)',fontWeight:600}}>
+                    🎉 All days complete!
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
       )}
 
       {tab === 'assign' && (
