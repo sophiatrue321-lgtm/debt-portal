@@ -3228,6 +3228,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
     const [ppGames, setPpGames] = useState([]);
     const [tiers, setTiers] = useState([]);
     const [clausesByProfile, setClausesByProfile] = useState({});
+    const [accessByProfile, setAccessByProfile] = useState({});
     const [ld, setLd] = useState(false);
     const [ok, setOk] = useState('');
     const [err, setErr] = useState('');
@@ -3252,12 +3253,18 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         const contractList = c||[];
         if (contractList.length > 0) {
           const ids = [...new Set(contractList.map(x=>x.profile_id))];
-          const chs = await sf('/rest/v1/phase2_choices?profile_id=in.(' + ids.join(',') + ')&select=*,clause:phase2_clauses!clause_id(name,icon)&order=spin_number');
+          const [chs, acc] = await Promise.all([
+            sf('/rest/v1/phase2_choices?profile_id=in.(' + ids.join(',') + ')&select=*,clause:phase2_clauses!clause_id(name,icon)&order=spin_number'),
+            sf('/rest/v1/phase2_access?profile_id=in.(' + ids.join(',') + ')&select=profile_id,clause_method,tier_method')
+          ]);
           const byPid = {};
           (chs||[]).forEach(ch => { (byPid[ch.profile_id] = byPid[ch.profile_id] || []).push(ch); });
           setClausesByProfile(byPid);
+          const accMap = {};
+          (acc||[]).forEach(a => { accMap[a.profile_id] = a; });
+          setAccessByProfile(accMap);
         } else {
-          setClausesByProfile({});
+          setClausesByProfile({}); setAccessByProfile({});
         }
       } catch(e) { setErr('Load error: ' + e.message); }
       setLd(false);
@@ -3378,7 +3385,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
                     </div>
                     {clausesByProfile[c.profile_id] && (
                       <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px'}}>
-                        Clauses: {clausesByProfile[c.profile_id].map(ch => ch.clause.icon + ' ' + ch.clause.name).join(' · ')}
+                        Clauses {accessByProfile[c.profile_id]?.clause_method === 'select' ? <span style={{color:'var(--gold)',fontWeight:600}}>(picked · £50 fee)</span> : accessByProfile[c.profile_id]?.clause_method === 'spin' ? <span style={{color:'var(--text-muted)'}}>(spun)</span> : null}: {clausesByProfile[c.profile_id].map(ch => ch.clause.icon + ' ' + ch.clause.name).join(' · ')}
                       </div>
                     )}
                     {c.proposed_terms && (

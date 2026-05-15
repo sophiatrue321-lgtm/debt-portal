@@ -2475,6 +2475,7 @@ document.addEventListener('keydown', function(e) {
 // =====================================================
 var phase2State = null;
 var phase2Tiers = [];
+var phase2Clauses = [];
 var phase2Spinning = false;
 var phase2WheelRotation = 0;
 
@@ -2499,6 +2500,11 @@ async function loadPhase2() {
       var t = await sb.from('phase2_tiers').select('*').eq('is_active', true).order('sort_order');
       if (t.error) throw t.error;
       phase2Tiers = t.data || [];
+    }
+    if (phase2Clauses.length === 0) {
+      var cl = await sb.from('phase2_clauses').select('*').eq('is_active', true).order('category').order('clause_key');
+      if (cl.error) throw cl.error;
+      phase2Clauses = cl.data || [];
     }
     var a = await sb.from('phase2_access').select('*').eq('profile_id', currentProfile.id).maybeSingle();
     if (a.error) throw a.error;
@@ -2718,9 +2724,30 @@ async function spinP2TierWheel() {
 }
 
 // ----- CLAUSE FLOW -----
+function p2GetEligibleClauses(tier) {
+  if (!tier) return [];
+  var tierSort = tier.sort_order;
+  var byKey = {};
+  phase2Tiers.forEach(function(t){ byKey[t.tier_key] = t; });
+  return phase2Clauses.filter(function(c) {
+    if (!c.is_active) return false;
+    if (c.tier_floor && byKey[c.tier_floor] && byKey[c.tier_floor].sort_order > tierSort) return false;
+    if (c.tier_ceiling && byKey[c.tier_ceiling] && byKey[c.tier_ceiling].sort_order < tierSort) return false;
+    if (c.tier_excluded && c.tier_excluded.indexOf(tier.tier_key) !== -1) return false;
+    return true;
+  });
+}
+
 function renderP2ClauseFlow() {
   var tier = phase2Tiers.find(function(t){return t.id===phase2State.access.chosen_tier_id;});
   var chosenCount = phase2State.choices.length;
+  var method = phase2State.access.clause_method;
+
+  // Brand-new clause stage: show full pool + two-path picker
+  if (chosenCount === 0 && !method) {
+    return renderP2ChoosePath(tier);
+  }
+
   var dots = '';
   for (var i = 1; i <= 3; i++) {
     var cls = i <= chosenCount ? 'filled' : (i === chosenCount+1 ? 'current' : '');
@@ -2735,11 +2762,10 @@ function renderP2ClauseFlow() {
     + '</div>'
     + '<div class="p2-clauses-prog">' + dots + '</div>';
 
-  // Summary of chosen so far
   if (chosenCount > 0) {
     html += '<div class="p2-clauses-summary">';
     html += '<div class="p2-clauses-summary-title">Already spun</div>';
-    phase2State.choices.forEach(function(c, idx) {
+    phase2State.choices.forEach(function(c) {
       html += '<div class="p2-clause-mini">'
         + '  <span class="p2-clause-mini-icon">' + p2Esc(c.clause.icon) + '</span>'
         + '  <span class="p2-clause-mini-name">' + p2Esc(c.clause.name) + '</span>'
@@ -2757,11 +2783,9 @@ function renderP2ClauseFlow() {
   }
 
   if (chosenCount === 3) {
-    // Should advance state, but just in case
     html += '<div class="p2-wheel-wrap"><button class="p2-wheel-spin-btn" onclick="loadPhase2()">Proceed to signing</button></div>';
   }
 
-  // Reroll prompt
   var rerollCost = 100;
   var tokens = (currentProfile && currentProfile.token_balance) || 0;
   if (chosenCount > 0 && chosenCount <= 3 && !rerollUsed) {
@@ -2774,6 +2798,86 @@ function renderP2ClauseFlow() {
     html += '</div>';
   }
   return html;
+}
+
+function renderP2ChoosePath(tier) {
+  var eligible = p2GetEligibleClauses(tier);
+  var byCat = { tribute: [], financial: [], game: [], triggers: [] };
+  eligible.forEach(function(c){ if(byCat[c.category]) byCat[c.category].push(c); });
+  var catLabels = { tribute: 'Tribute clauses', financial: 'Financial clauses', game: 'Game clauses', triggers: 'The Triggers' };
+
+  var html = ''
+    + '<div class="p2-hero">'
+    + '  <div class="p2-hero-eyebrow">' + p2Esc(tier ? tier.icon + ' ' + tier.name : '') + '</div>'
+    + '  <div class="p2-hero-title">THE CLAUSE POOL</div>'
+    + '  <div class="p2-hero-sub">These are the penalties on the wheel. Three will be yours.</div>'
+    + '</div>'
+    + '<div class="p2-locked-body">'
+    + '  <p>You can spin the wheel and let fate decide. Free. Three random penalties.</p>'
+    + '  <p>Or you can tick the three you can stomach and pay £50 to lock them in. You see what you are buying.</p>'
+    + '  <p>If you pick, your suggestions and your picks go to Me after you sign. I notice everything you avoid.</p>'
+    + '</div>'
+    + '<form id="p2ClausePickForm" onsubmit="event.preventDefault();return false;" oninput="p2OnClauseTick()">';
+
+  ['tribute','financial','game','triggers'].forEach(function(cat) {
+    if (!byCat[cat] || byCat[cat].length === 0) return;
+    html += '<div class="p2-clauses-summary"><div class="p2-clauses-summary-title">' + catLabels[cat] + '</div>';
+    byCat[cat].forEach(function(c) {
+      html += '<label class="p2-clause-mini" style="cursor:pointer;align-items:flex-start;gap:12px;padding:12px 14px;">'
+        + '  <input type="checkbox" class="p2-clause-tick" data-key="' + p2Esc(c.clause_key) + '" style="margin-top:3px;width:16px;height:16px;accent-color:var(--te-gold);">'
+        + '  <span class="p2-clause-mini-icon">' + p2Esc(c.icon) + '</span>'
+        + '  <span style="flex:1;">'
+        + '    <span class="p2-clause-mini-name" style="display:block;">' + p2Esc(c.name) + '</span>'
+        + '    <span style="display:block;font-size:12px;color:var(--te-text-dim);margin-top:4px;line-height:1.5;">' + p2Esc(c.description) + '</span>'
+        + '  </span>'
+        + '</label>';
+    });
+    html += '</div>';
+  });
+
+  html += '</form>'
+    + '<div class="p2-clauses-summary" style="text-align:center;margin-top:18px;">'
+    + '  <div id="p2PickStatus" class="p2-loading-text" style="margin-bottom:14px;">Tick three to enable the £50 path.</div>'
+    + '  <button class="p2-wheel-spin-btn" onclick="spinP2Clause(1)" style="margin-right:8px;">Spin the wheel (free)</button>'
+    + '  <button class="p2-wheel-spin-btn" id="p2SelectBtn" onclick="submitP2SelectedClauses()" disabled style="background:transparent;color:var(--te-gold);border:1px solid var(--te-gold);">Lock in ticked &middot; £50</button>'
+    + '</div>';
+  return html;
+}
+
+function p2OnClauseTick() {
+  var ticks = document.querySelectorAll('.p2-clause-tick:checked');
+  var btn = document.getElementById('p2SelectBtn');
+  var status = document.getElementById('p2PickStatus');
+  if (ticks.length > 3) {
+    // Uncheck the last one beyond 3
+    ticks[ticks.length-1].checked = false;
+    ticks = document.querySelectorAll('.p2-clause-tick:checked');
+  }
+  if (ticks.length === 3) {
+    btn.disabled = false;
+    status.textContent = 'Three ticked. £50 locks them in.';
+  } else {
+    btn.disabled = true;
+    status.textContent = 'Tick ' + (3 - ticks.length) + ' more to enable the £50 path.';
+  }
+}
+
+async function submitP2SelectedClauses() {
+  var ticks = document.querySelectorAll('.p2-clause-tick:checked');
+  if (ticks.length !== 3) { alert('Pick exactly 3.'); return; }
+  var keys = Array.from(ticks).map(function(el){ return el.getAttribute('data-key'); });
+  if (!confirm('Lock in these 3 clauses for £50? This fee is non-refundable and goes to Me.')) return;
+  var btn = document.getElementById('p2SelectBtn');
+  if (btn) btn.disabled = true;
+  try {
+    var r = await sb.rpc('sub_select_clauses', { p_profile_id: currentProfile.id, p_clause_keys: keys });
+    if (r.error) throw r.error;
+    if (r.data && r.data.success === false) { alert(r.data.error); if(btn) btn.disabled=false; return; }
+    await loadPhase2();
+  } catch (err) {
+    alert('Selection failed: ' + (err.message||err));
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function spinP2Clause(spinNumber) {
