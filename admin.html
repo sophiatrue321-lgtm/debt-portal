@@ -1180,6 +1180,8 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         {showEditClauses && <EditClauses st={st} pid={pid} onSaved={reloadStips} />}
       </div>}
 
+      <Phase2Control pid={pid} pr={pr} onChange={async()=>{const fresh=await getProfile(pid);setPr(fresh);}} />
+
       <div className="tabs">
         <button className={`tab ${tab==='ledger'?'active':''}`} onClick={()=>setTab('ledger')}>Ledger</button>
         <button className={`tab ${tab==='tokens'?'active':''}`} onClick={()=>setTab('tokens')}>Tokens</button>
@@ -3141,6 +3143,83 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   );
 }
   
+  function Phase2Control({ pid, pr, onChange }) {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const [petition, setPetition] = useState(null);
+    const [tierName, setTierName] = useState(null);
+
+    useEffect(() => {
+      (async () => {
+        try {
+          const a = await sf('/rest/v1/phase2_access?profile_id=eq.' + pid + '&select=*,tier:phase2_tiers!chosen_tier_id(name,icon)');
+          if (a && a[0]) {
+            setPetition(a[0]);
+            if (a[0].tier) setTierName(a[0].tier.icon + ' ' + a[0].tier.name);
+          } else {
+            setPetition(null); setTierName(null);
+          }
+        } catch(e) { /* ignore */ }
+      })();
+    }, [pid, pr?.phase2_unlocked, pr?.phase2_eligible, pr?.phase2_tier_id]);
+
+    const call = async (rpcName, body, confirmMsg) => {
+      if (confirmMsg && !window.confirm(confirmMsg)) return;
+      setBusy(true); setErr('');
+      try {
+        const r = await sf('/rest/v1/rpc/' + rpcName, { method:'POST', body: JSON.stringify(body) });
+        if (r && r.success === false) { setErr(r.error || 'Failed'); setBusy(false); return; }
+        await onChange?.();
+      } catch(e) { setErr('Error: ' + e.message); }
+      setBusy(false);
+    };
+
+    const unlocked = !!pr?.phase2_unlocked;
+    const eligible = !!pr?.phase2_eligible;
+    const pendingPet = petition && petition.petition_status === 'pending';
+    const step = petition?.current_step || (unlocked ? 'unlocked' : 'locked');
+
+    let statusLabel = 'Locked';
+    if (pendingPet) statusLabel = 'Petition pending';
+    else if (step === 'unlocked') statusLabel = 'Unlocked — choosing tier';
+    else if (step === 'tier_chosen') statusLabel = 'Tier chosen — spinning clauses';
+    else if (step === 'clauses_spun') statusLabel = 'Ready to sign';
+    else if (step === 'signed') statusLabel = 'Signed' + (tierName ? ' · ' + tierName : '');
+    else if (step === 'pp_game_pending') statusLabel = 'PP game pending';
+    else if (step === 'pp_game_complete') statusLabel = 'PP game complete';
+    else if (step === 'declined') statusLabel = 'Declined';
+
+    return (
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'12px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
+          <div>
+            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase'}}>Phase 2</div>
+            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'17px',color:'var(--gold)',marginTop:'2px'}}>
+              {statusLabel}
+              {eligible && !unlocked && !pendingPet && <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'8px'}}>(auto-eligible)</span>}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+            {!unlocked && !pendingPet && (
+              <button disabled={busy} onClick={()=>call('admin_unlock_phase2',{p_profile_id:pid,p_method:'gift'},`Gift Phase 2 to D${pr.debtor_number}?`)} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600,letterSpacing:'1px'}}>🎀 Gift access</button>
+            )}
+            {pendingPet && (
+              <>
+                <button disabled={busy} onClick={()=>call('admin_approve_petition',{p_profile_id:pid},`Approve D${pr.debtor_number}'s petition?`)} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>✅ Approve</button>
+                <button disabled={busy} onClick={()=>call('admin_deny_petition',{p_profile_id:pid,p_refund:true},`Deny + refund D${pr.debtor_number}?`)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>Deny + refund</button>
+                <button disabled={busy} onClick={()=>call('admin_deny_petition',{p_profile_id:pid,p_refund:false},`Deny D${pr.debtor_number} and KEEP £250?`)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>Deny + keep £250</button>
+              </>
+            )}
+            {unlocked && (
+              <button disabled={busy} onClick={()=>call('admin_revoke_phase2',{p_profile_id:pid},`Revoke Phase 2 for D${pr.debtor_number}? In-flight choices wiped.`)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>🔒 Revoke</button>
+            )}
+          </div>
+        </div>
+        {err && <div style={{color:'#c45c5c',fontSize:'11px',marginTop:'8px'}}>{err}</div>}
+      </div>
+    );
+  }
+
   function Phase2({ profiles, privacyMode, onRefresh }) {
     const [tab, setTab] = useState('eligible');
     const [eligible, setEligible] = useState([]);
