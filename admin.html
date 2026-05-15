@@ -1180,6 +1180,8 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         {showEditClauses && <EditClauses st={st} pid={pid} onSaved={reloadStips} />}
       </div>}
 
+      <Phase2Control pid={pid} pr={pr} onChange={async()=>{const fresh=await getProfile(pid);setPr(fresh);}} />
+
       <div className="tabs">
         <button className={`tab ${tab==='ledger'?'active':''}`} onClick={()=>setTab('ledger')}>Ledger</button>
         <button className={`tab ${tab==='tokens'?'active':''}`} onClick={()=>setTab('tokens')}>Tokens</button>
@@ -3141,6 +3143,330 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   );
 }
   
+  function Phase2Control({ pid, pr, onChange }) {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const [petition, setPetition] = useState(null);
+    const [tierName, setTierName] = useState(null);
+
+    useEffect(() => {
+      (async () => {
+        try {
+          const a = await sf('/rest/v1/phase2_access?profile_id=eq.' + pid + '&select=*,tier:phase2_tiers!chosen_tier_id(name,icon)');
+          if (a && a[0]) {
+            setPetition(a[0]);
+            if (a[0].tier) setTierName(a[0].tier.icon + ' ' + a[0].tier.name);
+          } else {
+            setPetition(null); setTierName(null);
+          }
+        } catch(e) { /* ignore */ }
+      })();
+    }, [pid, pr?.phase2_unlocked, pr?.phase2_eligible, pr?.phase2_tier_id]);
+
+    const call = async (rpcName, body, confirmMsg) => {
+      if (confirmMsg && !window.confirm(confirmMsg)) return;
+      setBusy(true); setErr('');
+      try {
+        const r = await sf('/rest/v1/rpc/' + rpcName, { method:'POST', body: JSON.stringify(body) });
+        if (r && r.success === false) { setErr(r.error || 'Failed'); setBusy(false); return; }
+        await onChange?.();
+      } catch(e) { setErr('Error: ' + e.message); }
+      setBusy(false);
+    };
+
+    const unlocked = !!pr?.phase2_unlocked;
+    const eligible = !!pr?.phase2_eligible;
+    const pendingPet = petition && petition.petition_status === 'pending';
+    const step = petition?.current_step || (unlocked ? 'unlocked' : 'locked');
+
+    let statusLabel = 'Locked';
+    if (pendingPet) statusLabel = 'Petition pending';
+    else if (step === 'unlocked') statusLabel = 'Unlocked — choosing tier';
+    else if (step === 'tier_chosen') statusLabel = 'Tier chosen — spinning clauses';
+    else if (step === 'clauses_spun') statusLabel = 'Ready to sign';
+    else if (step === 'signed') statusLabel = 'Signed' + (tierName ? ' · ' + tierName : '');
+    else if (step === 'pp_game_pending') statusLabel = 'PP game pending';
+    else if (step === 'pp_game_complete') statusLabel = 'PP game complete';
+    else if (step === 'declined') statusLabel = 'Declined';
+
+    return (
+      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'12px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
+          <div>
+            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase'}}>Phase 2</div>
+            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'17px',color:'var(--gold)',marginTop:'2px'}}>
+              {statusLabel}
+              {eligible && !unlocked && !pendingPet && <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'8px'}}>(auto-eligible)</span>}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+            {!unlocked && !pendingPet && (
+              <button disabled={busy} onClick={()=>call('admin_unlock_phase2',{p_profile_id:pid,p_method:'gift'},`Gift Phase 2 to D${pr.debtor_number}?`)} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600,letterSpacing:'1px'}}>🎀 Gift access</button>
+            )}
+            {pendingPet && (
+              <>
+                <button disabled={busy} onClick={()=>call('admin_approve_petition',{p_profile_id:pid},`Approve D${pr.debtor_number}'s petition?`)} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>✅ Approve</button>
+                <button disabled={busy} onClick={()=>call('admin_deny_petition',{p_profile_id:pid,p_refund:true},`Deny + refund D${pr.debtor_number}?`)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>Deny + refund</button>
+                <button disabled={busy} onClick={()=>call('admin_deny_petition',{p_profile_id:pid,p_refund:false},`Deny D${pr.debtor_number} and KEEP £250?`)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>Deny + keep £250</button>
+              </>
+            )}
+            {unlocked && (
+              <button disabled={busy} onClick={()=>call('admin_revoke_phase2',{p_profile_id:pid},`Revoke Phase 2 for D${pr.debtor_number}? In-flight choices wiped.`)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>🔒 Revoke</button>
+            )}
+          </div>
+        </div>
+        {err && <div style={{color:'#c45c5c',fontSize:'11px',marginTop:'8px'}}>{err}</div>}
+      </div>
+    );
+  }
+
+  function Phase2({ profiles, privacyMode, onRefresh }) {
+    const [tab, setTab] = useState('eligible');
+    const [eligible, setEligible] = useState([]);
+    const [petitions, setPetitions] = useState([]);
+    const [contracts, setContracts] = useState([]);
+    const [ppGames, setPpGames] = useState([]);
+    const [tiers, setTiers] = useState([]);
+    const [clausesByProfile, setClausesByProfile] = useState({});
+    const [accessByProfile, setAccessByProfile] = useState({});
+    const [ld, setLd] = useState(false);
+    const [ok, setOk] = useState('');
+    const [err, setErr] = useState('');
+    const [reviewGame, setReviewGame] = useState(null);
+    const [tweetUrl, setTweetUrl] = useState('');
+    const [finalLikes, setFinalLikes] = useState('');
+    const [finalRts, setFinalRts] = useState('');
+    const [finalComments, setFinalComments] = useState('');
+
+    const load = useCallback(async () => {
+      setLd(true); setErr('');
+      try {
+        const [e, p, c, g, t] = await Promise.all([
+          sf('/rest/v1/profiles?phase2_eligible=eq.true&phase2_unlocked=eq.false&is_active=eq.true&select=*&order=current_balance.asc'),
+          sf('/rest/v1/phase2_access?petition_status=eq.pending&select=*,profile:profiles!phase2_access_profile_id_fkey(id,debtor_number,display_name,current_balance,username)'),
+          sf('/rest/v1/phase2_contracts?status=eq.active&select=*,profile:profiles!phase2_contracts_profile_id_fkey(id,debtor_number,display_name,current_balance,username),tier:phase2_tiers!tier_id(*)&order=signed_at.desc'),
+          sf('/rest/v1/phase2_pp_games?select=*,profile:profiles!phase2_pp_games_profile_id_fkey(id,debtor_number,display_name,username)&order=proposed_at.desc'),
+          sf('/rest/v1/phase2_tiers?is_active=eq.true&select=*&order=sort_order')
+        ]);
+        setEligible(e||[]); setPetitions(p||[]); setContracts(c||[]); setPpGames(g||[]); setTiers(t||[]);
+        // Load clauses for each contract's profile (small N, parallel)
+        const contractList = c||[];
+        if (contractList.length > 0) {
+          const ids = [...new Set(contractList.map(x=>x.profile_id))];
+          const [chs, acc] = await Promise.all([
+            sf('/rest/v1/phase2_choices?profile_id=in.(' + ids.join(',') + ')&select=*,clause:phase2_clauses!clause_id(name,icon)&order=spin_number'),
+            sf('/rest/v1/phase2_access?profile_id=in.(' + ids.join(',') + ')&select=profile_id,clause_method,tier_method')
+          ]);
+          const byPid = {};
+          (chs||[]).forEach(ch => { (byPid[ch.profile_id] = byPid[ch.profile_id] || []).push(ch); });
+          setClausesByProfile(byPid);
+          const accMap = {};
+          (acc||[]).forEach(a => { accMap[a.profile_id] = a; });
+          setAccessByProfile(accMap);
+        } else {
+          setClausesByProfile({}); setAccessByProfile({});
+        }
+      } catch(e) { setErr('Load error: ' + e.message); }
+      setLd(false);
+    }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    const flash = (msg) => { setOk(msg); setTimeout(()=>setOk(''), 3500); };
+
+    const rpc = async (name, body) => {
+      const r = await sf('/rest/v1/rpc/' + name, { method:'POST', body: JSON.stringify(body) });
+      if (r && r.success === false) throw new Error(r.error || 'RPC failed');
+      return r;
+    };
+
+    const gift = async (pid, num) => {
+      if (!window.confirm(`Gift Phase 2 access to D${num}?`)) return;
+      try { await rpc('admin_unlock_phase2', { p_profile_id: pid, p_method: 'gift' }); flash(`🎀 D${num} unlocked.`); await load(); onRefresh?.(); }
+      catch(e) { setErr(e.message); }
+    };
+    const revoke = async (pid, num) => {
+      if (!window.confirm(`Revoke Phase 2 access for D${num}? Any in-flight choices are wiped.`)) return;
+      try { await rpc('admin_revoke_phase2', { p_profile_id: pid }); flash(`🔒 D${num} revoked.`); await load(); onRefresh?.(); }
+      catch(e) { setErr(e.message); }
+    };
+    const approvePetition = async (pid, num) => {
+      if (!window.confirm(`Approve D${num}'s petition? They get access immediately.`)) return;
+      try { await rpc('admin_approve_petition', { p_profile_id: pid }); flash(`🔓 D${num} approved.`); await load(); onRefresh?.(); }
+      catch(e) { setErr(e.message); }
+    };
+    const denyPetition = async (pid, num, refund) => {
+      const msg = refund ? `Deny petition for D${num} and refund £250?` : `Deny petition for D${num} and KEEP the £250?`;
+      if (!window.confirm(msg)) return;
+      try { await rpc('admin_deny_petition', { p_profile_id: pid, p_refund: refund }); flash(`❌ D${num} denied${refund?' (refunded)':' (£250 kept)'}.`); await load(); onRefresh?.(); }
+      catch(e) { setErr(e.message); }
+    };
+    const approveGame = async () => {
+      if (!reviewGame) return;
+      if (!tweetUrl.trim()) { setErr('Paste the tweet URL first.'); return; }
+      try { await rpc('admin_approve_pp_game', { p_game_id: reviewGame.id, p_tweet_url: tweetUrl.trim() }); flash('🎰 Game live.'); setReviewGame(null); setTweetUrl(''); await load(); onRefresh?.(); }
+      catch(e) { setErr(e.message); }
+    };
+    const finalizeGame = async () => {
+      if (!reviewGame) return;
+      const l = parseInt(finalLikes,10), r = parseInt(finalRts,10), c = parseInt(finalComments,10);
+      if (!(l>=0 && r>=0 && c>=0)) { setErr('Enter valid non-negative counts.'); return; }
+      const tally = (l*reviewGame.likes_multiplier)+(r*reviewGame.rts_multiplier)+(c*reviewGame.comments_multiplier);
+      const finalDebt = Math.max(1000, tally) - 250;
+      if (!window.confirm(`Tally = £${tally.toFixed(2)}. Final debt (after £250 deposit) = £${finalDebt.toFixed(2)}. Lock it?`)) return;
+      try { await rpc('admin_finalize_pp_game', { p_game_id: reviewGame.id, p_likes: l, p_rts: r, p_comments: c }); flash(`💎 Game finalized. Debt £${finalDebt.toFixed(2)}.`); setReviewGame(null); setFinalLikes(''); setFinalRts(''); setFinalComments(''); await load(); onRefresh?.(); }
+      catch(e) { setErr(e.message); }
+    };
+
+    const tierBadge = (tier) => tier ? <span style={{color:'var(--gold)',fontFamily:'Cormorant Garamond,serif',fontSize:'14px',letterSpacing:'1px'}}>{tier.icon} {tier.name}</span> : null;
+    const dispName = (p) => privacyMode ? `D${p.debtor_number}` : (p.display_name || p.username || `D${p.debtor_number}`);
+
+    return (
+      <div className="page">
+        <div className="page-title">👑 Phase 2</div>
+        {ok && <div style={{padding:'10px 14px',margin:'0 0 12px',background:'rgba(92,184,122,0.1)',border:'1px solid rgba(92,184,122,0.3)',borderRadius:'4px',color:'#5cb87a',fontSize:'13px'}}>{ok}</div>}
+        {err && <div style={{padding:'10px 14px',margin:'0 0 12px',background:'rgba(196,92,92,0.1)',border:'1px solid rgba(196,92,92,0.3)',borderRadius:'4px',color:'#c45c5c',fontSize:'13px'}}>{err} <button style={{marginLeft:'8px',background:'transparent',border:'none',color:'#c45c5c',cursor:'pointer'}} onClick={()=>setErr('')}>×</button></div>}
+        <div className="tabs" style={{marginBottom:'14px'}}>
+          <button className={`tab ${tab==='eligible'?'active':''}`} onClick={()=>setTab('eligible')}>Eligible ({eligible.length})</button>
+          <button className={`tab ${tab==='petitions'?'active':''}`} onClick={()=>setTab('petitions')}>Petitions ({petitions.length})</button>
+          <button className={`tab ${tab==='contracts'?'active':''}`} onClick={()=>setTab('contracts')}>Contracts ({contracts.length})</button>
+          <button className={`tab ${tab==='games'?'active':''}`} onClick={()=>setTab('games')}>PP Games ({ppGames.filter(g=>!g.final_debt).length})</button>
+        </div>
+        {ld && <div style={{padding:'14px',textAlign:'center',color:'var(--text-muted)'}}>Loading…</div>}
+
+        {!ld && tab === 'eligible' && (
+          eligible.length === 0
+            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No subs eligible. Auto-flagged when balance drops to £100 or below.</div>
+            : <div>
+                {eligible.map(p => (
+                  <div key={p.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
+                      <div>
+                        <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(p)}</div>
+                        <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'4px'}}>Balance: £{Number(p.current_balance||0).toFixed(2)} · Tier: {p.tier || 'Debtor'}</div>
+                      </div>
+                      <button onClick={()=>gift(p.id, p.debtor_number)} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 16px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600,letterSpacing:'1px'}}>🎀 Gift access</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+        )}
+
+        {!ld && tab === 'petitions' && (
+          petitions.length === 0
+            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No pending petitions.</div>
+            : <div>
+                {petitions.map(p => p.profile && (
+                  <div key={p.profile_id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
+                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(p.profile)}</div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'4px',marginBottom:'12px'}}>Paid £250 · Balance £{Number(p.profile.current_balance||0).toFixed(2)}</div>
+                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                      <button onClick={()=>approvePetition(p.profile_id, p.profile.debtor_number)} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>✅ Approve</button>
+                      <button onClick={()=>denyPetition(p.profile_id, p.profile.debtor_number, true)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px'}}>❌ Deny + refund</button>
+                      <button onClick={()=>denyPetition(p.profile_id, p.profile.debtor_number, false)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px'}}>❌ Deny + keep £250</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+        )}
+
+        {!ld && tab === 'contracts' && (
+          contracts.length === 0
+            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No active Phase 2 contracts.</div>
+            : <div>
+                {contracts.map(c => c.profile && (
+                  <div key={c.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:'8px',marginBottom:'8px'}}>
+                      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(c.profile)}</div>
+                      <div>{tierBadge(c.tier)}</div>
+                    </div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>
+                      Debt £{Number(c.debt_total).toFixed(2)} · Weekly £{Number(c.weekly_payment)} · Sunday {Number(c.interest_rate)}%{c.sunday_wheel_optin?' (0-30% wheel)':''}
+                    </div>
+                    {clausesByProfile[c.profile_id] && (
+                      <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px'}}>
+                        Clauses {accessByProfile[c.profile_id]?.clause_method === 'select' ? <span style={{color:'var(--gold)',fontWeight:600}}>(picked · £50 fee)</span> : accessByProfile[c.profile_id]?.clause_method === 'spin' ? <span style={{color:'var(--text-muted)'}}>(spun)</span> : null}: {clausesByProfile[c.profile_id].map(ch => ch.clause.icon + ' ' + ch.clause.name).join(' · ')}
+                      </div>
+                    )}
+                    {c.proposed_terms && (
+                      <div style={{fontSize:'12px',color:'var(--text-muted)',padding:'8px 10px',background:'var(--surface-2)',borderRadius:'4px',marginBottom:'8px'}}>
+                        <b>Proposed terms ({c.proposed_terms_status || 'pending'}):</b> {c.proposed_terms}
+                      </div>
+                    )}
+                    <button onClick={()=>revoke(c.profile_id, c.profile.debtor_number)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>🔒 Revoke access</button>
+                  </div>
+                ))}
+              </div>
+        )}
+
+        {!ld && tab === 'games' && (
+          ppGames.length === 0
+            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No PP games yet.</div>
+            : <div>
+                {ppGames.map(g => g.profile && (
+                  <div key={g.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:'8px',marginBottom:'8px'}}>
+                      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(g.profile)}</div>
+                      <div style={{fontSize:'11px',color:'var(--text-muted)'}}>
+                        {g.final_debt ? '💎 finalized' : (g.admin_approved_at ? '🎰 live' : '⏳ pending')}
+                      </div>
+                    </div>
+                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'8px'}}>
+                      £{Number(g.likes_multiplier)}/like · £{Number(g.rts_multiplier)}/RT · £{Number(g.comments_multiplier)}/comment · {g.run_time_minutes}min
+                    </div>
+                    {g.additional_stipulations && <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px',padding:'6px 8px',background:'var(--surface-2)',borderRadius:'4px'}}>Stipulations: {g.additional_stipulations}</div>}
+                    {g.tweet_url && <div style={{fontSize:'12px',marginBottom:'8px'}}><a href={g.tweet_url} target="_blank" style={{color:'var(--gold)'}}>Open tweet</a></div>}
+                    {g.final_debt != null && (
+                      <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px'}}>
+                        Final: {g.final_likes||0} likes · {g.final_rts||0} RTs · {g.final_comments||0} comments → £{Number(g.final_debt).toFixed(2)}
+                      </div>
+                    )}
+                    {!g.admin_approved_at && (
+                      <button onClick={()=>{setReviewGame(g);setTweetUrl('');setFinalLikes('');setFinalRts('');setFinalComments('');}} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>Approve + post tweet</button>
+                    )}
+                    {g.admin_approved_at && !g.final_debt && (
+                      <button onClick={()=>{setReviewGame(g);setFinalLikes('');setFinalRts('');setFinalComments('');}} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>Finalize with tallies</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+        )}
+
+        {reviewGame && !reviewGame.admin_approved_at && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'20px'}} onClick={e=>{if(e.target===e.currentTarget)setReviewGame(null);}}>
+            <div style={{background:'var(--surface)',border:'1px solid var(--gold)',borderRadius:'6px',padding:'22px',maxWidth:'440px',width:'100%'}}>
+              <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'20px',color:'var(--gold)',marginBottom:'14px'}}>Approve game + post tweet</div>
+              <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}}>Post the tweet using the agreed stipulations, then paste the URL here.</div>
+              <input type="url" value={tweetUrl} onChange={e=>setTweetUrl(e.target.value)} placeholder="https://x.com/MissSophiaTruee/status/..." style={{width:'100%',padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px',marginBottom:'14px'}} />
+              <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
+                <button onClick={()=>setReviewGame(null)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer'}}>Cancel</button>
+                <button onClick={approveGame} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 16px',borderRadius:'4px',cursor:'pointer',fontWeight:600}}>Approve + log URL</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reviewGame && reviewGame.admin_approved_at && !reviewGame.final_debt && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'20px'}} onClick={e=>{if(e.target===e.currentTarget)setReviewGame(null);}}>
+            <div style={{background:'var(--surface)',border:'1px solid var(--gold)',borderRadius:'6px',padding:'22px',maxWidth:'440px',width:'100%'}}>
+              <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'20px',color:'var(--gold)',marginBottom:'14px'}}>Finalize game</div>
+              <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}}>Multipliers: £{Number(reviewGame.likes_multiplier)}/like · £{Number(reviewGame.rts_multiplier)}/RT · £{Number(reviewGame.comments_multiplier)}/comment.</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'14px'}}>
+                <input type="number" min="0" value={finalLikes} onChange={e=>setFinalLikes(e.target.value)} placeholder="Likes" style={{padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px'}} />
+                <input type="number" min="0" value={finalRts} onChange={e=>setFinalRts(e.target.value)} placeholder="RTs" style={{padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px'}} />
+                <input type="number" min="0" value={finalComments} onChange={e=>setFinalComments(e.target.value)} placeholder="Comments" style={{padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px'}} />
+              </div>
+              <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
+                <button onClick={()=>setReviewGame(null)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer'}}>Cancel</button>
+                <button onClick={finalizeGame} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 16px',borderRadius:'4px',cursor:'pointer',fontWeight:600}}>Compute + lock debt</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function App() {
   const [auth, setAuth] = useState(false);
   const [chk, setChk] = useState(true);
@@ -3258,6 +3584,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         {pg==='settings'&&<Settings onLogout={lo} />}
         {pg==='guide'&&<Guide />}
         {pg==='onboard'&&<Onboard profiles={profs} onDone={load} />}
+        {pg==='phase2'&&<Phase2 profiles={profs} privacyMode={privacyMode} onRefresh={load} />}
       </>}
       <nav className="bottom-nav">
         <button className={`nav-item ${pg==='dashboard'?'active':''}`} onClick={()=>setPg('dashboard')}>
@@ -3285,6 +3612,9 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
+        <button className={`nav-item ${pg==='phase2'?'active':''}`} onClick={()=>setPg('phase2')} style={{position:'relative'}}>
+          <span className="nav-icon">👑</span><span className="nav-label">Phase 2</span>
+        </button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
     </div>
