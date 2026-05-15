@@ -2776,10 +2776,19 @@ function renderP2ClauseFlow() {
   }
 
   if (chosenCount < 3) {
+    var alreadyIds = phase2State.choices.map(function(c){return c.clause_id;});
+    var spinPool = p2GetEligibleClauses(tier).filter(function(c){return alreadyIds.indexOf(c.id) === -1;});
     html += '<div class="p2-wheel-wrap">'
       + '  <div class="p2-loading-text" style="text-align:center;">Spin number ' + (chosenCount + 1) + ' of 3.</div>'
+      + '  <div class="p2-wheel-canvas">'
+      + '    <div class="p2-wheel-pointer">▼</div>'
+      + '    <div class="p2-wheel-rotor" id="p2ClauseRotor">'
+      + '      <svg viewBox="0 0 300 300" width="300" height="300" id="p2ClauseSvg"></svg>'
+      + '    </div>'
+      + '  </div>'
       + '  <button class="p2-wheel-spin-btn" id="p2ClauseSpinBtn" onclick="spinP2Clause(' + (chosenCount + 1) + ')" style="margin-top:18px;">Spin the clause wheel</button>'
       + '</div>';
+    setTimeout(function(){ p2DrawClauseWheel(spinPool); }, 30);
   }
 
   if (chosenCount === 3) {
@@ -2880,6 +2889,17 @@ async function submitP2SelectedClauses() {
   }
 }
 
+function p2RenderClauseReveal(c, suffix) {
+  var wrap = document.getElementById('phase2Content');
+  wrap.innerHTML = '<div class="p2-clause-reveal">'
+    + '<div class="p2-clause-reveal-icon">' + p2Esc(c.icon) + '</div>'
+    + '<div class="p2-clause-reveal-name">' + p2Esc(c.name) + '</div>'
+    + '<div class="p2-clause-reveal-cat">' + p2Esc(c.category) + (suffix ? (' &middot; ' + suffix) : '') + '</div>'
+    + '<div class="p2-clause-reveal-desc">' + p2Esc(c.description) + '</div>'
+    + '<button class="p2-accept-btn" onclick="loadPhase2()">Continue</button>'
+    + '</div>';
+}
+
 async function spinP2Clause(spinNumber) {
   if (phase2Spinning) return;
   phase2Spinning = true;
@@ -2889,18 +2909,25 @@ async function spinP2Clause(spinNumber) {
     var r = await sb.rpc('sub_spin_clause', { p_profile_id: currentProfile.id, p_spin_number: spinNumber });
     if (r.error) throw r.error;
     if (r.data && r.data.success === false) { alert(r.data.error); phase2Spinning=false; if(btn){btn.disabled=false;btn.textContent='Spin the clause wheel';} return; }
-    // Show reveal
     var c = r.data;
-    var wrap = document.getElementById('phase2Content');
-    var revealHtml = '<div class="p2-clause-reveal">'
-      + '<div class="p2-clause-reveal-icon">' + p2Esc(c.icon) + '</div>'
-      + '<div class="p2-clause-reveal-name">' + p2Esc(c.name) + '</div>'
-      + '<div class="p2-clause-reveal-cat">' + p2Esc(c.category) + '</div>'
-      + '<div class="p2-clause-reveal-desc">' + p2Esc(c.description) + '</div>'
-      + '<button class="p2-accept-btn" onclick="loadPhase2()">Continue</button>'
-      + '</div>';
-    wrap.innerHTML = revealHtml;
-    phase2Spinning = false;
+
+    // Animate wheel to land on result if rendered
+    var order = window._p2ClauseOrder || [];
+    var idx = -1;
+    for (var i = 0; i < order.length; i++) { if (order[i].clause_key === c.clause_key) { idx = i; break; } }
+    var rotor = document.getElementById('p2ClauseRotor');
+    if (rotor && idx >= 0 && order.length > 0) {
+      var segDeg = 360 / order.length;
+      var target = 360 - (idx * segDeg + segDeg/2);
+      var spins = (6 + Math.floor(Math.random()*3)) * 360;
+      var final = phase2WheelRotation + spins + target;
+      rotor.style.transform = 'rotate(' + final + 'deg)';
+      phase2WheelRotation = final;
+      setTimeout(function() { p2RenderClauseReveal(c); phase2Spinning = false; }, 4700);
+    } else {
+      p2RenderClauseReveal(c);
+      phase2Spinning = false;
+    }
   } catch (err) {
     alert('Spin failed: ' + (err.message||err));
     phase2Spinning = false; if(btn){btn.disabled=false; btn.textContent='Spin the clause wheel';}
@@ -2916,19 +2943,46 @@ async function rerollP2Clause(spinNumber) {
     // Refresh profile for new token balance
     var p = await sb.from('profiles').select('*').eq('id', currentProfile.id).maybeSingle();
     if (p.data) currentProfile = p.data;
-    var c = r.data;
-    var wrap = document.getElementById('phase2Content');
-    wrap.innerHTML = '<div class="p2-clause-reveal">'
-      + '<div class="p2-clause-reveal-icon">' + p2Esc(c.icon) + '</div>'
-      + '<div class="p2-clause-reveal-name">' + p2Esc(c.name) + '</div>'
-      + '<div class="p2-clause-reveal-cat">' + p2Esc(c.category) + ' &middot; re-rolled</div>'
-      + '<div class="p2-clause-reveal-desc">' + p2Esc(c.description) + '</div>'
-      + '<button class="p2-accept-btn" onclick="loadPhase2()">Continue</button>'
-      + '</div>';
+    p2RenderClauseReveal(r.data, 're-rolled');
   } catch (err) { alert('Re-roll failed: ' + (err.message||err)); }
 }
 
-function p2DrawClauseWheel() { /* placeholder — clause wheel is animation-light reveal */ }
+function p2DrawClauseWheel(pool) {
+  var svg = document.getElementById('p2ClauseSvg');
+  if (!svg || !pool || pool.length === 0) return;
+  // Reset rotation when redrawing (new spin = fresh wheel position)
+  var rotor = document.getElementById('p2ClauseRotor');
+  if (rotor) {
+    rotor.classList.add('no-transition');
+    rotor.style.transform = 'rotate(0deg)';
+    phase2WheelRotation = 0;
+    setTimeout(function(){ rotor.classList.remove('no-transition'); }, 30);
+  }
+  var n = pool.length;
+  var cx=150, cy=150, r=148;
+  var html='';
+  // Subtle alternating slice fills, slightly tinted per category for variety
+  var catTint = { tribute:'#1a1510', financial:'#1c1710', game:'#1a1510', triggers:'#231a10' };
+  for (var i = 0; i < n; i++) {
+    var c = pool[i];
+    var a1 = (i*360/n - 90) * Math.PI/180;
+    var a2 = ((i+1)*360/n - 90) * Math.PI/180;
+    var x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+    var x2 = cx + r*Math.cos(a2), y2 = cy + r*Math.sin(a2);
+    var large = (360/n > 180) ? 1 : 0;
+    var fill = (i % 2 === 0) ? '#181310' : (catTint[c.category] || '#1a1510');
+    html += '<path d="M' + cx + ',' + cy + ' L' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + large + ',1 ' + x2 + ',' + y2 + ' Z" fill="' + fill + '" stroke="#c9a84c" stroke-width="0.5" stroke-opacity="0.3"/>';
+    var midA = ((i + 0.5)*360/n - 90) * Math.PI/180;
+    var lr = r * 0.78;
+    var lx = cx + lr*Math.cos(midA), ly = cy + lr*Math.sin(midA);
+    var rot = (i + 0.5)*360/n;
+    html += '<text x="' + lx + '" y="' + ly + '" fill="#c9a84c" font-size="16" font-family="DM Sans,sans-serif" text-anchor="middle" dominant-baseline="central" transform="rotate(' + rot + ',' + lx + ',' + ly + ')">' + p2Esc(c.icon) + '</text>';
+  }
+  html += '<circle cx="' + cx + '" cy="' + cy + '" r="22" fill="#0a0a0a" stroke="#c9a84c" stroke-width="1.5"/>';
+  html += '<text x="' + cx + '" y="' + cy + '" fill="#c9a84c" font-size="9" font-family="DM Sans,sans-serif" text-anchor="middle" dominant-baseline="central" letter-spacing="1.5">FATE</text>';
+  svg.innerHTML = html;
+  window._p2ClauseOrder = pool;
+}
 
 // ----- SIGNING -----
 function renderP2SigningFlow() {
