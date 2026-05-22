@@ -2697,7 +2697,16 @@ async function chooseP2Tier(tierKey) {
 }
 
 async function unchooseP2Tier() {
-  if (!confirm('Go back to tier selection? Your current tier choice will be cleared.')) return;
+  var hasChoices = phase2State && phase2State.choices && phase2State.choices.length > 0;
+  var paid = phase2State && phase2State.access && phase2State.access.clause_method === 'select';
+  var msg = 'Go back to tier selection? Your current tier choice will be cleared.';
+  if (hasChoices) {
+    msg = 'Go back to tier selection? You will lose your '
+      + phase2State.choices.length + ' clauses. '
+      + (paid ? 'The £50 selection fee is not refundable. ' : '')
+      + 'Any tokens spent on rerolls are not refunded.';
+  }
+  if (!confirm(msg)) return;
   try {
     var r = await sb.rpc('sub_unchoose_tier', { p_profile_id: currentProfile.id });
     if (r.error) throw r.error;
@@ -2705,6 +2714,10 @@ async function unchooseP2Tier() {
     await loadPhase2();
   } catch (err) { alert('Could not go back: ' + (err.message||err)); }
 }
+
+var P2_BACK_BTN_HTML = '<div style="text-align:center;margin:-6px 0 14px;">'
+  + '<button onclick="unchooseP2Tier()" style="background:transparent;color:var(--te-text-dim);border:1px solid var(--te-border);padding:7px 14px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border-radius:4px;cursor:pointer;font-family:DM Sans,sans-serif;">← Wrong tier? Go back</button>'
+  + '</div>';
 
 async function spinP2TierWheel() {
   if (phase2Spinning) return;
@@ -2770,6 +2783,7 @@ function renderP2ClauseFlow() {
     + '  <div class="p2-hero-title">THE CLAUSE WHEEL</div>'
     + '  <div class="p2-hero-sub">Three spins. Three penalties. One re-roll.</div>'
     + '</div>'
+    + P2_BACK_BTN_HTML
     + '<div class="p2-clauses-prog">' + dots + '</div>';
 
   if (chosenCount > 0) {
@@ -2831,9 +2845,7 @@ function renderP2ChoosePath(tier) {
     + '  <div class="p2-hero-title">THE CLAUSE POOL</div>'
     + '  <div class="p2-hero-sub">These are the penalties on the wheel. Three will be yours.</div>'
     + '</div>'
-    + '<div style="text-align:center;margin:-6px 0 14px;">'
-    + '  <button onclick="unchooseP2Tier()" style="background:transparent;color:var(--te-text-dim);border:1px solid var(--te-border);padding:7px 14px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border-radius:4px;cursor:pointer;font-family:DM Sans,sans-serif;">← Wrong tier? Go back</button>'
-    + '</div>'
+    + P2_BACK_BTN_HTML
     + '<div class="p2-locked-body">'
     + '  <p>You can spin the wheel and let fate decide. Free. Three random penalties.</p>'
     + '  <p>Or you can tick the three you can stomach and pay £50 to lock them in. You see what you are buying.</p>'
@@ -3012,6 +3024,7 @@ function renderP2SigningFlow() {
     + '  <div class="p2-hero-title">SIGN</div>'
     + '  <div class="p2-hero-sub">Read every line. Then put your name to it.</div>'
     + '</div>'
+    + P2_BACK_BTN_HTML
     + '<div class="p2-sign-panel">'
     + '  <div class="p2-sign-preamble">' + p2Esc(tier.contract_preamble) + '</div>'
     + '  <div class="p2-sign-section-title">Terms</div>'
