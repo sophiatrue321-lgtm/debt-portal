@@ -2687,13 +2687,23 @@ function p2DrawTierWheel() {
 }
 
 async function chooseP2Tier(tierKey) {
-  if (!confirm('Choose this tier? You will not be able to change once selected.')) return;
+  if (!confirm('Choose this tier? You can back out before spinning or paying for clauses.')) return;
   try {
     var r = await sb.rpc('sub_choose_tier', { p_profile_id: currentProfile.id, p_tier_key: tierKey });
     if (r.error) throw r.error;
     if (r.data && r.data.success === false) { alert(r.data.error); return; }
     await loadPhase2();
   } catch (err) { alert('Could not select tier: ' + (err.message||err)); }
+}
+
+async function unchooseP2Tier() {
+  if (!confirm('Go back to tier selection? Your current tier choice will be cleared.')) return;
+  try {
+    var r = await sb.rpc('sub_unchoose_tier', { p_profile_id: currentProfile.id });
+    if (r.error) throw r.error;
+    if (r.data && r.data.success === false) { alert(r.data.error); return; }
+    await loadPhase2();
+  } catch (err) { alert('Could not go back: ' + (err.message||err)); }
 }
 
 async function spinP2TierWheel() {
@@ -2820,6 +2830,9 @@ function renderP2ChoosePath(tier) {
     + '  <div class="p2-hero-eyebrow">' + p2Esc(tier ? tier.icon + ' ' + tier.name : '') + '</div>'
     + '  <div class="p2-hero-title">THE CLAUSE POOL</div>'
     + '  <div class="p2-hero-sub">These are the penalties on the wheel. Three will be yours.</div>'
+    + '</div>'
+    + '<div style="text-align:center;margin:-6px 0 14px;">'
+    + '  <button onclick="unchooseP2Tier()" style="background:transparent;color:var(--te-text-dim);border:1px solid var(--te-border);padding:7px 14px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border-radius:4px;cursor:pointer;font-family:DM Sans,sans-serif;">← Wrong tier? Go back</button>'
     + '</div>'
     + '<div class="p2-locked-body">'
     + '  <p>You can spin the wheel and let fate decide. Free. Three random penalties.</p>'

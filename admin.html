@@ -3331,6 +3331,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
           <button className={`tab ${tab==='petitions'?'active':''}`} onClick={()=>setTab('petitions')}>Petitions ({petitions.length})</button>
           <button className={`tab ${tab==='contracts'?'active':''}`} onClick={()=>setTab('contracts')}>Contracts ({contracts.length})</button>
           <button className={`tab ${tab==='games'?'active':''}`} onClick={()=>setTab('games')}>PP Games ({ppGames.filter(g=>!g.final_debt).length})</button>
+          <button className={`tab ${tab==='tiers'?'active':''}`} onClick={()=>setTab('tiers')}>Tier catalog ({tiers.length})</button>
         </div>
         {ld && <div style={{padding:'14px',textAlign:'center',color:'var(--text-muted)'}}>Loading…</div>}
 
@@ -3434,6 +3435,37 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
                       <button onClick={()=>{setReviewGame(g);setFinalLikes('');setFinalRts('');setFinalComments('');}} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>Finalize with tallies</button>
                     )}
                   </div>
+                ))}
+              </div>
+        )}
+
+        {!ld && tab === 'tiers' && (
+          tiers.length === 0
+            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No tiers configured.</div>
+            : <div>
+                <div style={{padding:'10px 12px',marginBottom:'12px',background:'var(--surface-2)',borderRadius:'4px',fontSize:'11px',color:'var(--text-muted)',lineHeight:1.6}}>
+                  Read-only reference. Edit the <code>phase2_tiers</code> table directly in Supabase to change copy or terms.
+                </div>
+                {tiers.map(t => (
+                  <details key={t.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'10px'}}>
+                    <summary style={{cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:'10px',listStyle:'none'}}>
+                      <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:'19px',color:'var(--gold)',letterSpacing:'1px'}}>{t.icon} {t.name}</span>
+                      <span style={{fontSize:'11px',color:'var(--text-muted)'}}>
+                        {t.debt_amount ? `£${t.debt_amount} debt` : (t.tier_key === 'faithful' ? 'continues balance' : 'game-determined')}
+                        {' · '}£{t.weekly_payment}/wk · {t.interest_rate}% Sunday · £{t.deposit_amount} deposit
+                      </span>
+                    </summary>
+                    <div style={{marginTop:'12px',fontSize:'13px',color:'var(--text)',fontStyle:'italic'}}>{t.short_description}</div>
+                    <div style={{marginTop:'10px',fontSize:'12px',color:'var(--text-muted)',whiteSpace:'pre-wrap',lineHeight:1.7}}>{t.long_description}</div>
+                    <div style={{marginTop:'12px',padding:'10px 12px',background:'var(--bg)',borderRadius:'4px',fontSize:'12px',color:'var(--text)',whiteSpace:'pre-wrap',lineHeight:1.7,fontFamily:'Cormorant Garamond,serif'}}>{t.contract_preamble}</div>
+                    <div style={{marginTop:'12px',display:'flex',gap:'12px',flexWrap:'wrap',fontSize:'11px',color:'var(--text-muted)'}}>
+                      <span>On tier wheel: <b style={{color:'var(--text)'}}>{t.on_tier_wheel ? `yes (${t.wheel_slot_count} slot${t.wheel_slot_count===1?'':'s'})` : 'no'}</b></span>
+                      <span>Gifting: <b style={{color:'var(--text)'}}>{t.allows_gifting ? 'yes' : 'petition-only'}</b></span>
+                      <span>MST pfp required: <b style={{color:'var(--text)'}}>{t.mst_pfp_required ? 'yes' : 'no'}</b></span>
+                      <span>Leaderboard badge: <b style={{color:'var(--text)'}}>{t.leaderboard_badge || '—'}</b></span>
+                      <span>Showcase: <b style={{color:'var(--text)'}}>{t.showcase_placement}</b></span>
+                    </div>
+                  </details>
                 ))}
               </div>
         )}
