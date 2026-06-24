@@ -1182,6 +1182,26 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
 
       <Phase2Control pid={pid} pr={pr} onChange={async()=>{const fresh=await getProfile(pid);setPr(fresh);}} />
 
+      {pr?.is_active !== false && (
+        <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
+          <div>
+            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase'}}>Archive</div>
+            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'15px',color:'var(--text)',marginTop:'2px'}}>Frees up D{pr.debtor_number} for reuse. Removes from Wix showcase. Data kept in archived_debtors.</div>
+          </div>
+          <button onClick={async()=>{
+            const reason = window.prompt('Reason for archiving D' + pr.debtor_number + '? (optional)', 'Contract completed');
+            if (reason === null) return;
+            if (!window.confirm('Archive ' + (pr.display_name||('D'+pr.debtor_number)) + '? This deactivates the profile, deletes their stipulations, and removes them from Wix. The data snapshot is preserved.')) return;
+            try {
+              const r = await sf('/rest/v1/rpc/admin_offboard_debtor', { method:'POST', body: JSON.stringify({ p_profile_id: pid, p_reason: reason||'Contract completed' }) });
+              if (r?.error) { alert('Error: ' + r.error); return; }
+              alert(r?.message || '🗄️ Debtor archived.');
+              onBack?.();
+            } catch(e) { alert('Error: ' + e.message); }
+          }} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',letterSpacing:'1px'}}>🗄️ Archive debtor</button>
+        </div>
+      )}
+
       <div className="tabs">
         <button className={`tab ${tab==='ledger'?'active':''}`} onClick={()=>setTab('ledger')}>Ledger</button>
         <button className={`tab ${tab==='tokens'?'active':''}`} onClick={()=>setTab('tokens')}>Tokens</button>
@@ -1813,6 +1833,19 @@ function Onboard({ profiles, onDone }) {
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
 
+  // Archived debtors list (for re-onboarding)
+  const [archived, setArchived] = useState([]);
+  const [selectedArchive, setSelectedArchive] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await sf('/rest/v1/rpc/admin_get_archived_debtors', { method:'POST', body: JSON.stringify({}) });
+        setArchived(Array.isArray(r) ? r : []);
+      } catch(e) { /* ignore */ }
+    })();
+  }, []);
+
   // Profile fields
   const [debtorNum, setDebtorNum] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -1960,9 +1993,35 @@ try {
 setSaving(false);
 };
 
+  const applyArchive = (archiveId) => {
+    setSelectedArchive(archiveId);
+    if (!archiveId) return;
+    const a = archived.find(x => x.id === archiveId);
+    if (!a) return;
+    setDisplayName(a.display_name || '');
+    setUsername(a.username || '');
+    setTier(a.tier || 'Bronze');
+    setNotes((a.offboard_reason ? 'Re-onboarded. Previous: ' + a.offboard_reason + ' · £' + Number(a.total_payments||0).toFixed(2) + ' lifetime payments.' : ''));
+  };
+
   return (
     <div className="page">
       <div className="page-title">🆕 Onboard New Debtor</div>
+
+      {archived.length > 0 && (
+        <div className="settings-section">
+          <div className="settings-title">🗄️ Archived debtors ({archived.length})</div>
+          <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>Pick a previously archived debtor to pre-fill name/username/tier below. You still pick the debtor number — leave the suggested next number, or type their old one (now freed up) if you want to reuse it.</div>
+          <select className="fs" value={selectedArchive} onChange={e=>applyArchive(e.target.value)}>
+            <option value="">— Onboard fresh / pick from archive —</option>
+            {archived.map(a => (
+              <option key={a.id} value={a.id}>
+                D{a.debtor_number} · {a.display_name || '(no name)'} · {a.offboard_reason || 'archived'} · {a.offboarded_at ? new Date(a.offboarded_at).toLocaleDateString('en-GB') : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="settings-section">
         <div className="settings-title">👤 Debtor Info</div>
