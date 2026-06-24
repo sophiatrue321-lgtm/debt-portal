@@ -3089,14 +3089,60 @@ function renderP2Signed() {
       + '  <button class="p2-sign-btn" onclick="proposeP2PPGame()">Submit the game proposal</button>'
       + '</div>';
   }
-  // Non-PP: confirmation card
-  return ''
-    + '<div class="p2-result-card">'
-    + '  <div class="p2-result-icon">' + p2Esc(tier ? tier.icon : '📜') + '</div>'
-    + '  <div class="p2-result-title">You belong to Me, ' + p2Esc(tier ? tier.name : '') + '</div>'
-    + '  <div class="p2-result-detail">Contract signed. Your weekly is £' + Number(c.weekly_payment) + '. Sunday interest at ' + Number(c.interest_rate) + '%' + (c.sunday_wheel_optin ? ' (opted into the 0-30% wheel)' : '') + '.</div>'
-    + (c.proposed_terms ? '<div class="p2-result-detail" style="margin-top:14px;">Proposed stipulations submitted — pending My review.</div>' : '')
+  // Non-PP: full contract summary
+  return renderP2ContractSummary(c, tier);
+}
+
+function renderP2ContractSummary(c, tier) {
+  var signedDate = c.signed_at ? new Date(c.signed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  var ptStatus = c.proposed_terms_status;
+  var ptColor = ptStatus === 'approved' ? 'var(--te-green)' : ptStatus === 'denied' ? 'var(--te-red)' : 'var(--te-gold)';
+  var ptLabel = ptStatus === 'approved' ? 'Accepted' : ptStatus === 'denied' ? 'Denied' : 'Pending Empress review';
+
+  var html = ''
+    + '<div class="p2-hero">'
+    + '  <div class="p2-hero-eyebrow">Your contract — signed ' + p2Esc(signedDate) + '</div>'
+    + '  <div class="p2-hero-title">' + p2Esc(tier ? tier.icon + ' ' + (tier.name||'').toUpperCase() : 'YOUR CONTRACT') + '</div>'
+    + '  <div class="p2-hero-sub">' + p2Esc(tier ? tier.short_description : '') + '</div>'
+    + '</div>'
+    + '<div class="p2-sign-panel">'
+    + '  <div class="p2-sign-section-title">Your terms</div>'
+    + '  <div class="p2-sign-terms-line"><span>Contract debt</span><span>£' + Number(c.debt_total || 0).toLocaleString() + '</span></div>'
+    + '  <div class="p2-sign-terms-line"><span>Weekly tribute</span><span>£' + Number(c.weekly_payment) + '</span></div>'
+    + '  <div class="p2-sign-terms-line"><span>Sunday interest</span><span>' + (c.sunday_wheel_optin ? '0-30% wheel' : Number(c.interest_rate) + '% fixed') + '</span></div>'
+    + (tier && Number(tier.deposit_amount) ? '<div class="p2-sign-terms-line"><span>Deposit</span><span>£' + Number(tier.deposit_amount) + '</span></div>' : '')
+    + (tier && tier.mst_pfp_required ? '<div class="p2-sign-terms-line"><span>Profile picture</span><span>MST image required</span></div>' : '')
+    + (tier && tier.leaderboard_badge ? '<div class="p2-sign-terms-line"><span>Leaderboard badge</span><span>' + p2Esc(tier.leaderboard_badge) + '</span></div>' : '')
+    + '</div>'
+    + '<div class="p2-sign-panel" style="margin-top:14px;">'
+    + '  <div class="p2-sign-section-title">Your three clauses</div>';
+
+  (phase2State.choices || []).forEach(function(ch) {
+    var cl = ch.clause || {};
+    html += '<div class="p2-clause-reveal" style="margin:10px 0;animation:none;text-align:left;">'
+      + '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;">'
+      + '<span class="p2-clause-reveal-icon" style="font-size:24px;margin-bottom:0;">' + p2Esc(cl.icon||'') + '</span>'
+      + '<span class="p2-clause-reveal-name" style="font-size:18px;margin-bottom:0;">' + p2Esc(cl.name||'') + '</span>'
+      + '<span class="p2-clause-reveal-cat" style="margin-bottom:0;margin-left:auto;">' + p2Esc(cl.category||'') + (ch.was_rerolled ? ' · re-rolled' : '') + '</span>'
+      + '</div>'
+      + '<div class="p2-clause-reveal-desc" style="margin-bottom:0;">' + p2Esc(cl.description||'') + '</div>'
+      + '</div>';
+  });
+  html += '</div>';
+
+  if (c.proposed_terms) {
+    html += '<div class="p2-sign-panel" style="margin-top:14px;">'
+      + '  <div class="p2-sign-section-title">Your proposed stipulations</div>'
+      + '  <div style="font-size:13px;color:var(--te-text);line-height:1.7;margin-bottom:10px;">' + p2Esc(c.proposed_terms) + '</div>'
+      + '  <div style="display:inline-block;padding:6px 12px;border-radius:4px;border:1px solid ' + ptColor + ';color:' + ptColor + ';font-size:11px;letter-spacing:1.5px;text-transform:uppercase;">' + p2Esc(ptLabel) + '</div>'
+      + '</div>';
+  }
+
+  html += '<div class="p2-locked-body" style="margin-top:14px;text-align:center;">'
+    + '<p class="p2-emphasis" style="font-size:14px;">Mine, Faithfully.</p>'
     + '</div>';
+
+  return html;
 }
 
 async function proposeP2PPGame() {
@@ -3122,6 +3168,8 @@ async function proposeP2PPGame() {
 
 function renderP2PPPending() {
   var g = phase2State.ppGame;
+  var c = phase2State.contract;
+  var tier = c && c.tier;
   return ''
     + '<div class="p2-result-card">'
     + '  <div class="p2-result-icon">⏳</div>'
@@ -3129,11 +3177,14 @@ function renderP2PPPending() {
     + '  <div class="p2-result-detail">£' + (g ? Number(g.likes_multiplier) : '') + ' per like &middot; £' + (g ? Number(g.rts_multiplier) : '') + ' per retweet &middot; £' + (g ? Number(g.comments_multiplier) : '') + ' per comment.</div>'
     + '  <div class="p2-result-detail" style="margin-top:12px;">' + (g && g.tweet_url ? 'Tweet is live. Watch your debt grow.' : 'Awaiting My review. I will post the tweet when I am ready.') + '</div>'
     + (g && g.tweet_url ? '<div class="p2-result-detail" style="margin-top:10px;"><a href="' + p2Esc(g.tweet_url) + '" target="_blank" style="color:var(--te-gold);">Open the tweet</a></div>' : '')
-    + '</div>';
+    + '</div>'
+    + (c && tier ? renderP2ContractSummary(c, tier) : '');
 }
 
 function renderP2PPComplete() {
   var g = phase2State.ppGame;
+  var c = phase2State.contract;
+  var tier = c && c.tier;
   return ''
     + '<div class="p2-result-card">'
     + '  <div class="p2-result-icon">💎</div>'
@@ -3141,7 +3192,8 @@ function renderP2PPComplete() {
     + '  <div class="p2-result-detail">Final debt: £' + (g ? Number(g.final_debt).toLocaleString() : '') + '</div>'
     + '  <div class="p2-result-detail" style="margin-top:10px;">' + (g ? Number(g.final_likes||0) + ' likes &middot; ' + Number(g.final_rts||0) + ' retweets &middot; ' + Number(g.final_comments||0) + ' comments' : '') + '</div>'
     + '  <div class="p2-result-detail" style="margin-top:14px;font-style:italic;">Now we begin properly.</div>'
-    + '</div>';
+    + '</div>'
+    + (c && tier ? renderP2ContractSummary(c, tier) : '');
 }
 
 // ===== INIT =====
