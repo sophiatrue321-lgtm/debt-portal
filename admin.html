@@ -3274,6 +3274,8 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
     const [err, setErr] = useState('');
     const [petition, setPetition] = useState(null);
     const [tierName, setTierName] = useState(null);
+    const [contract, setContract] = useState(null);
+    const [contractClauses, setContractClauses] = useState([]);
 
     useEffect(() => {
       (async () => {
@@ -3284,6 +3286,16 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
             if (a[0].tier) setTierName(a[0].tier.icon + ' ' + a[0].tier.name);
           } else {
             setPetition(null); setTierName(null);
+          }
+        } catch(e) { /* ignore */ }
+        try {
+          const cn = await sf('/rest/v1/phase2_contracts?profile_id=eq.' + pid + '&status=eq.active&select=*,tier:phase2_tiers!tier_id(*)&order=signed_at.desc&limit=1');
+          if (cn && cn[0]) {
+            setContract(cn[0]);
+            const chs = await sf('/rest/v1/phase2_choices?profile_id=eq.' + pid + '&select=*,clause:phase2_clauses!clause_id(*)&order=spin_number');
+            setContractClauses(chs || []);
+          } else {
+            setContract(null); setContractClauses([]);
           }
         } catch(e) { /* ignore */ }
       })();
@@ -3342,6 +3354,43 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
           </div>
         </div>
         {err && <div style={{color:'#c45c5c',fontSize:'11px',marginTop:'8px'}}>{err}</div>}
+
+        {contract && contract.tier && (
+          <div style={{borderTop:'1px solid var(--border)',marginTop:'12px',paddingTop:'12px'}}>
+            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:'8px'}}>Active contract</div>
+            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'17px',color:'var(--gold)',marginBottom:'4px'}}>{contract.tier.icon} {contract.tier.name}</div>
+            <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>
+              Signed {contract.signed_at ? new Date(contract.signed_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : ''}
+              {' · '}Debt £{Number(contract.debt_total||0).toLocaleString()}
+              {' · £'}{Number(contract.weekly_payment)}/wk
+              {' · '}{contract.sunday_wheel_optin ? '0-30% wheel Sundays' : Number(contract.interest_rate)+'% fixed Sundays'}
+            </div>
+            {contractClauses.length > 0 && (
+              <div style={{marginBottom:'10px'}}>
+                <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'6px'}}>Clauses ({(petition?.clause_method === 'select' ? 'picked · £50 fee' : 'spun')})</div>
+                {contractClauses.map(ch => (
+                  <div key={ch.id} style={{display:'flex',gap:'10px',alignItems:'baseline',padding:'6px 0',borderBottom:'1px dotted var(--border)',fontSize:'12px'}}>
+                    <span style={{fontSize:'16px'}}>{ch.clause?.icon}</span>
+                    <span style={{color:'var(--gold)',fontFamily:'Cormorant Garamond,serif',fontSize:'14px',minWidth:'150px'}}>{ch.clause?.name}</span>
+                    <span style={{color:'var(--text)',flex:1,lineHeight:1.5}}>{ch.clause?.description}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {contract.proposed_terms && (
+              <div style={{marginTop:'10px',padding:'10px 12px',background:'var(--bg-card)',borderRadius:'4px'}}>
+                <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>Proposed stipulations · {contract.proposed_terms_status || 'pending'}</div>
+                <div style={{fontSize:'12px',color:'var(--text)',lineHeight:1.6,marginBottom:'8px'}}>{contract.proposed_terms}</div>
+                {(contract.proposed_terms_status === 'pending' || !contract.proposed_terms_status) && (
+                  <div style={{display:'flex',gap:'6px'}}>
+                    <button disabled={busy} onClick={async()=>{try{const r=await sf('/rest/v1/rpc/admin_review_proposed_terms',{method:'POST',body:JSON.stringify({p_contract_id:contract.id,p_approve:true})});if(r?.success===false){setErr(r.error);return;}await onChange?.();}catch(e){setErr(e.message);}}} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>✅ Accept</button>
+                    <button disabled={busy} onClick={async()=>{try{const r=await sf('/rest/v1/rpc/admin_review_proposed_terms',{method:'POST',body:JSON.stringify({p_contract_id:contract.id,p_approve:false})});if(r?.success===false){setErr(r.error);return;}await onChange?.();}catch(e){setErr(e.message);}}} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>❌ Deny</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
