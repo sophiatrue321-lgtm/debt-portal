@@ -424,6 +424,7 @@ const getShopItems = () => sf('/rest/v1/shop_items?select=*&order=category.asc,s
 const assignTask = (pid, title, desc, due, type) => sf('/rest/v1/rpc/admin_assign_task', { method: 'POST', body: JSON.stringify({ p_profile_id: pid, p_title: title, p_description: desc || null, p_due_date: due || null, p_task_type: type || 'admin_assigned' }) });
 const acceptTask = (id, note) => sf('/rest/v1/rpc/admin_accept_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_note: note || null }) });
 const fineTask = (id, amount, note) => sf('/rest/v1/rpc/admin_fine_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_fine_amount: amount, p_note: note || null }) });
+const cancelTask = (id, note) => sf('/rest/v1/rpc/admin_cancel_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_note: note || null }) });
 const markTaskDay = (orderId, note) => sf('/rest/v1/rpc/admin_mark_task_day', { method: 'POST', body: JSON.stringify({ p_order_id: orderId, p_note: note || null }) });
 const undoTaskDay = (orderId) => sf('/rest/v1/rpc/admin_undo_task_day', { method: 'POST', body: JSON.stringify({ p_order_id: orderId }) });
 const getShopOrderById = (id) => sf('/rest/v1/shop_orders?id=eq.' + id + '&select=*');
@@ -2703,6 +2704,16 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
             </div>
             <button className="btn btn-danger" onClick={doFine} disabled={ld||!fineAmt} style={{width:'100%'}}>{ld?<span className="spinner"/>:'⚠️ Fine Debtor'}</button>
           </div>
+
+          <div style={{borderTop:'1px solid var(--border)',paddingTop:'12px',marginTop:'12px'}}>
+            <button className="btn btn-outline" disabled={ld} onClick={async()=>{
+              if(!window.confirm('Clear "'+reviewItem.title+'"? Marks it cancelled. No fine, no balance change.')) return;
+              setLd(true); setErr(''); setOk('');
+              try { const r = await cancelTask(reviewItem.id, null); if(r?.error){setErr(r.error);}else{setOk('🧹 Cleared: '+reviewItem.title); setReviewItem(null); onDone?.();} }
+              catch(e){ setErr('Error: '+e.message); }
+              setLd(false);
+            }} style={{width:'100%'}}>🧹 Clear (no fine)</button>
+          </div>
         </div>
       )}
 
@@ -2744,14 +2755,30 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
                 <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
                 <div className="feed-time">{due ? (isOverdue?'OVERDUE — was due ':'Due: ')+fmtD(t.due_date) : 'No deadline'} · Assigned {ago(t.created_at)}</div>
               </div>
-              {isMultiDay ? (
-                <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
-              ) : (
-                <div style={{display:'flex',gap:'6px',flexShrink:0}}>
-                  <button className="btn btn-sm" disabled={ld} onClick={doDoneActive} style={{background:'var(--green)',color:'#0a0a0a',padding:'6px 10px',fontSize:'11px',fontWeight:600}}>✅ Done</button>
-                  <button className="btn btn-sm" disabled={ld} onClick={doFailActive} style={{background:'transparent',color:'var(--red)',border:'1px solid rgba(231,76,60,0.4)',padding:'6px 10px',fontSize:'11px'}}>❌ Fail</button>
-                </div>
-              )}
+              {(() => {
+                const doClearActive = async (e) => {
+                  e.stopPropagation();
+                  if (!window.confirm('Clear "' + t.title + '"? Marks it cancelled. No fine, no balance change.')) return;
+                  setLd(true); setErr(''); setOk('');
+                  try {
+                    const r = await cancelTask(t.id, null);
+                    if (r?.error) setErr(r.error); else { setOk('🧹 Cleared: ' + t.title); onDone?.(); }
+                  } catch(err) { setErr('Error: ' + err.message); }
+                  setLd(false);
+                };
+                return isMultiDay ? (
+                  <div style={{display:'flex',gap:'6px',flexShrink:0,alignItems:'center'}}>
+                    <button className="btn btn-sm" disabled={ld} onClick={doClearActive} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'6px 10px',fontSize:'11px'}}>🧹 Clear</button>
+                    <div style={{color:'var(--gold)',fontSize:'14px'}}>→</div>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',gap:'6px',flexShrink:0}}>
+                    <button className="btn btn-sm" disabled={ld} onClick={doDoneActive} style={{background:'var(--green)',color:'#0a0a0a',padding:'6px 10px',fontSize:'11px',fontWeight:600}}>✅ Done</button>
+                    <button className="btn btn-sm" disabled={ld} onClick={doFailActive} style={{background:'transparent',color:'var(--red)',border:'1px solid rgba(231,76,60,0.4)',padding:'6px 10px',fontSize:'11px'}}>❌ Fail</button>
+                    <button className="btn btn-sm" disabled={ld} onClick={doClearActive} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'6px 10px',fontSize:'11px'}}>🧹 Clear</button>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}</div>
@@ -2837,7 +2864,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
           <div className="form-group"><label className="form-label">Debtor</label>
             <select className="fs" value={assignPid} onChange={e=>{setAssignPid(e.target.value);setTaskShield(null);setErr('');if(e.target.value){getDebtorAddons(e.target.value).then(r=>{const ts=(r||[]).find(a=>a.item_type==='task_shield'&&a.shield_uses_remaining>0);setTaskShield(ts||null);}).catch(()=>setTaskShield(null));}}}>
               <option value="">Select debtor...</option>
-              {profiles.map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode?'••••':p.display_name}</option>))}
+              {profiles.filter(p=>p.is_active!==false).map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode?'••••':p.display_name}</option>))}
             </select>
           </div>
 
