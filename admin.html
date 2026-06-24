@@ -1318,8 +1318,8 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const [pct, setPct] = useState('');
   const [notes, setNotes] = useState('');
   const [payMethod, setPayMethod] = useState('');
-  const [addFee, setAddFee] = useState(true);
-  const [feeAmt, setFeeAmt] = useState('5');
+  const [addFee, setAddFee] = useState(false);
+  const [feeAmt, setFeeAmt] = useState('');
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
@@ -1343,13 +1343,18 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const nb = isPay ? bal-ca+fee : bal+ca+fee;
   const te = isPay&&pr ? calcTok(ca, parseFloat(pr.weekly_payment)||0, pr.payment_streak||0) : 0;
 
-  // Auto-set fee amount from stipulations
+  // Auto-set fee amount from stipulations; if no fee in contract, force-off
+  const stipHasFee = !!(st && st.admin_fee && /\d/.test(st.admin_fee));
   useEffect(() => {
-    if (st && st.admin_fee) {
+    if (stipHasFee) {
       const feeMatch = st.admin_fee.match(/[£$]?(\d+(?:\.\d+)?)/);
       if (feeMatch) setFeeAmt(feeMatch[1]);
+      setAddFee(true);
+    } else {
+      setAddFee(false);
+      setFeeAmt('');
     }
-  }, [st]);
+  }, [st, stipHasFee]);
 
   // Load presets
   useEffect(() => {
@@ -1617,11 +1622,13 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
           </div>
         </div>
       )}
-      <div className="form-group"><label className="form-label">Admin Fee</label>
-        <label className="cb-row"><input type="checkbox" checked={addFee} onChange={e=>setAddFee(e.target.checked)} /><span>Add admin fee</span></label>
-        {addFee&&<input className="fi" type="number" inputMode="decimal" placeholder="5.00" value={feeAmt} onChange={e=>setFeeAmt(e.target.value)} style={{marginTop:'8px'}} />}
-        {st && st.admin_fee && <div className="form-hint">Rule: {st.admin_fee}</div>}
-      </div>
+      {stipHasFee ? (
+        <div className="form-group"><label className="form-label">Admin Fee</label>
+          <label className="cb-row"><input type="checkbox" checked={addFee} onChange={e=>setAddFee(e.target.checked)} /><span>Add admin fee</span></label>
+          {addFee&&<input className="fi" type="number" inputMode="decimal" placeholder="5.00" value={feeAmt} onChange={e=>setFeeAmt(e.target.value)} style={{marginTop:'8px'}} />}
+          <div className="form-hint">Rule: {st.admin_fee}</div>
+        </div>
+      ) : (sid && <div className="form-hint" style={{marginBottom:'14px'}}>No admin fee in this contract — fee field hidden.</div>)}
       <div className="form-group"><label className="form-label">Platform</label>
         <select className="fs" value={payMethod} onChange={e=>setPayMethod(e.target.value)}>
           <option value="">Select platform...</option>
@@ -2645,14 +2652,47 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
         <div className="feed-list">{active.map(t => {
           const due = t.due_date ? new Date(t.due_date) : null;
           const isOverdue = due && due < new Date();
+          const isMultiDay = !!t.shop_order_id;
+          const doDoneActive = async (e) => {
+            e.stopPropagation();
+            if (!window.confirm('Mark "' + t.title + '" as done for ' + (t.profiles?.debtor_number||'') + '?')) return;
+            setLd(true); setErr(''); setOk('');
+            try {
+              const r = await acceptTask(t.id, null);
+              if (r?.error) setErr(r.error); else { setOk('✅ Done: ' + t.title); onDone?.(); }
+            } catch(err) { setErr('Error: ' + err.message); }
+            setLd(false);
+          };
+          const doFailActive = async (e) => {
+            e.stopPropagation();
+            const defaultFine = parseFloat(t.fine_if_missed || t.fine_amount || 0) || '';
+            const amtStr = window.prompt('Fine amount for failed task "' + t.title + '" (£):', String(defaultFine));
+            if (amtStr === null) return;
+            const amt = parseFloat(amtStr);
+            if (!(amt > 0)) { window.alert('Enter a fine amount greater than 0.'); return; }
+            const note = window.prompt('Reason (optional):', '') || null;
+            setLd(true); setErr(''); setOk('');
+            try {
+              const r = await fineTask(t.id, amt, note);
+              if (r?.error) setErr(r.error); else { setOk('⚠️ Failed + fined £' + amt + ': ' + t.title); onDone?.(); }
+            } catch(err) { setErr('Error: ' + err.message); }
+            setLd(false);
+          };
           return (
-            <div className="feed-item" key={t.id} onClick={()=>openDayTracker(t)} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px',cursor:'pointer'}}>
+            <div className="feed-item" key={t.id} onClick={isMultiDay?()=>openDayTracker(t):undefined} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px',cursor:isMultiDay?'pointer':'default',alignItems:'center'}}>
               <div className="feed-icon" style={{background:isOverdue?'rgba(231,76,60,0.15)':'rgba(201,168,76,0.15)'}}>{isOverdue?'🚨':'📋'}</div>
               <div className="feed-body">
                 <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
                 <div className="feed-time">{due ? (isOverdue?'OVERDUE — was due ':'Due: ')+fmtD(t.due_date) : 'No deadline'} · Assigned {ago(t.created_at)}</div>
               </div>
-              <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
+              {isMultiDay ? (
+                <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
+              ) : (
+                <div style={{display:'flex',gap:'6px',flexShrink:0}}>
+                  <button className="btn btn-sm" disabled={ld} onClick={doDoneActive} style={{background:'var(--green)',color:'#0a0a0a',padding:'6px 10px',fontSize:'11px',fontWeight:600}}>✅ Done</button>
+                  <button className="btn btn-sm" disabled={ld} onClick={doFailActive} style={{background:'transparent',color:'var(--red)',border:'1px solid rgba(231,76,60,0.4)',padding:'6px 10px',fontSize:'11px'}}>❌ Fail</button>
+                </div>
+              )}
             </div>
           );
         })}</div>
