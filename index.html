@@ -1291,6 +1291,7 @@ var ledgerData = [];
 var tokenData = [];
 var stipData = null;
 var leaderboardData = [];
+var activePhase2Clauses = []; // sub's own Phase 2 clauses (with mechanic_json) — powers shop-lock checks etc.
 
 // ===== HELPERS =====
 function formatAmount(amount) {
@@ -1386,6 +1387,13 @@ async function loadApp(user) {
     return;
   }
   if (typeof p2SetNavLabel === 'function') p2SetNavLabel();
+  // Preload this sub's Phase 2 clauses so shop-lock and other checks are ready
+  try {
+    var chRes = await sb.from('phase2_choices')
+      .select('clause:phase2_clauses!clause_id(clause_key,mechanic_json)')
+      .eq('profile_id', currentProfile.id);
+    activePhase2Clauses = ((chRes.data || []).map(function(r){ return r.clause; }).filter(Boolean));
+  } catch (e) { activePhase2Clauses = []; }
   var name = currentProfile.display_name || 'Debtor';
   var code = currentProfile.debtor_code || currentProfile.debtor_number || '';
   document.getElementById('userDisplayName').textContent = code || name;
@@ -1636,8 +1644,24 @@ function renderShopOrders() {
   el.innerHTML = html;
 }
 
-async function placeShopOrder(itemType) {
+function checkShopLockForCategory(category) {
+  var lock = (activePhase2Clauses || []).find(function(c){ return c && c.clause_key === 'shop_locked'; });
+  if (!lock) return { blocked: false };
+  var m = lock.mechanic_json || {};
+  var exempt = Array.isArray(m.exempt_categories) ? m.exempt_categories : [];
+  if (category && exempt.indexOf(category) !== -1) return { blocked: false, exempt: true };
+  return { blocked: true };
+}
+
+async function placeShopOrder(itemType, category) {
   var msgEl = document.getElementById('shopMessage');
+  var lock = checkShopLockForCategory(category);
+  if (lock.blocked) {
+    msgEl.style.display = 'block';
+    msgEl.innerHTML = '<div class="codex-warn" style="border-color:var(--te-red);color:var(--te-red);">\ud83d\udeab Shop Locked. Your contract closes the shop to you. This category is not exempt.</div>';
+    setTimeout(function() { msgEl.style.display = 'none'; }, 5000);
+    return;
+  }
   msgEl.style.display = 'block';
   msgEl.className = '';
   msgEl.innerHTML = '<div class="loading-spinner" style="padding:0.5rem;"><div class="spinner"></div>Submitting...</div>';
@@ -1856,7 +1880,7 @@ function renderShopItemsDynamic() {
       if (alreadyClaimed) {
         rHtml += '<span style="font-size:12px;color:var(--te-green);font-weight:600;">✅ Claimed</span>';
       } else {
-        rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? (canClaim ? '🏆 Claim' : '🔒 Locked') : 'Purchase') + '</button>';
+        rHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\', \'' + (item.category||'') + '\')" ' + (canClaim ? '' : 'disabled') + '>' + (isRankReward ? (canClaim ? '🏆 Claim' : '🔒 Locked') : 'Purchase') + '</button>';
       }
       rHtml += '</div>';
       rHtml += '<div class="reward-body" style="margin-top:8px;">' + (item.description || '') + '</div>';
@@ -1874,7 +1898,7 @@ function renderShopItemsDynamic() {
       tHtml += '<div class="reward-card">';
       tHtml += '<div style="display:flex;justify-content:space-between;align-items:center;">';
       tHtml += '<div class="reward-rank">' + (item.icon || '📝') + ' ' + item.name + ' — ' + item.token_cost + ' tokens</div>';
-      tHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')">Purchase</button>';
+      tHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\', \'' + (item.category||'') + '\')">Purchase</button>';
       tHtml += '</div>';
       tHtml += '<div class="reward-body" style="margin-top:8px;">' + (item.description || '') + '</div>';
       tHtml += '</div>';
@@ -1890,7 +1914,7 @@ function renderShopItemsDynamic() {
       aHtml += '<div class="reward-card">';
       aHtml += '<div style="display:flex;justify-content:space-between;align-items:center;">';
       aHtml += '<div class="reward-rank">' + (item.icon || '🛡️') + ' ' + item.name + ' — ' + item.token_cost + ' tokens</div>';
-      aHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\')">Purchase</button>';
+      aHtml += '<button class="login-btn" style="width:auto;padding:8px 16px;font-size:11px;margin:0;" onclick="placeShopOrder(\'' + item.item_key + '\', \'' + (item.category||'') + '\')">Purchase</button>';
       aHtml += '</div>';
       aHtml += '<div class="reward-body" style="margin-top:8px;">' + (item.description || '') + '</div>';
       aHtml += '</div>';
