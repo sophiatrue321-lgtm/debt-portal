@@ -834,7 +834,7 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
           <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)} style={{borderColor:borderColor,background:bgColor}}>
             <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>{paidFull && '✅ '}{isOverdue && '🚨 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
+              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>{paidFull && '✅ '}{isOverdue && '🚨 '}{p.interest_frozen && '🥶 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
               {!privacyMode && un && <div className="debtor-username">@{un}</div>}
               <div className="debtor-meta">
                 {!privacyMode && <span>{p.debtor_number}</span>}
@@ -1087,7 +1087,12 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
       <button className="back-btn" onClick={onBack}>← Back</button>
       <div className="detail-header">
         <div className="detail-avatar">{ini(displayName)}</div>
-        <div className="detail-name">{displayName}</div>
+        <div className="detail-name">{pr?.interest_frozen && <span title={pr.interest_frozen_note || 'Interest frozen'}>🥶 </span>}{displayName}</div>
+        {pr?.interest_frozen && (
+          <div style={{background:'rgba(120,180,255,0.10)',border:'1px solid rgba(120,180,255,0.35)',borderRadius:'var(--radius-sm)',padding:'8px 12px',margin:'8px auto 0',maxWidth:'420px',fontSize:'12px',color:'#7bb8ff',textAlign:'center'}}>
+            🥶 {pr.interest_frozen_note || 'Interest frozen — no interest may be added.'}
+          </div>
+        )}
         {!privacyMode && (
           <div className="detail-username">
             {editUn ? (
@@ -1499,10 +1504,16 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
         </div>
       )}
 
+      {pr?.interest_frozen && (
+        <div style={{background:'rgba(120,180,255,0.10)',border:'1px solid rgba(120,180,255,0.35)',borderRadius:'var(--radius)',padding:'12px 14px',marginBottom:'12px',fontSize:'13px',color:'#7bb8ff'}}>
+          🥶 <b>Interest frozen</b> for {pr.display_name || ('D'+pr.debtor_number)}. {pr.interest_frozen_note || 'No interest may be added.'} Interest option is disabled below.
+        </div>
+      )}
+
       <div className="form-group"><label className="form-label">Type</label>
-        <select className="fs" value={type} onChange={e=>{setType(e.target.value);setShowWheel(false);}}>
+        <select className="fs" value={type} onChange={e=>{const v=e.target.value; if(v==='Interest' && pr?.interest_frozen){alert('🥶 Interest is frozen for this debtor.');return;} setType(v);setShowWheel(false);}}>
           <option value="Payment">Payment (reduces balance)</option>
-          <option value="Interest">Interest (% of balance)</option>
+          <option value="Interest" disabled={pr?.interest_frozen}>{pr?.interest_frozen ? '🥶 Interest (frozen)' : 'Interest (% of balance)'}</option>
           <option value="Fine">Fine</option>
           <option value="Deposit">Deposit</option>
           <option value="Debt Game">Debt Game</option>
