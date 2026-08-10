@@ -1247,7 +1247,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         </div>
       )}
       {tab==='contract'&&!st&&<div className="empty-state">No contract data</div>}
-      {tab==='evidence'&&<EvidenceVault pid={pid} debtorNumber={pr.debtor_number} debtorName={displayName} />}
+      {tab==='evidence'&&<EvidenceVault pid={pid} debtorNumber={pr.debtor_number} debtorName={displayName} privacyMode={privacyMode} />}
     </div>
   );
 }
@@ -3298,7 +3298,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
     return <span style={{background:'var(--red)',color:'#0a0a0a',fontSize:'10px',fontWeight:700,borderRadius:'10px',padding:'1px 6px',marginLeft:'4px',verticalAlign:'middle'}}>{count}</span>;
   }
 
-  function EvidenceVault({ pid, debtorNumber, debtorName }) {
+  function EvidenceVault({ pid, debtorNumber, debtorName, privacyMode }) {
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -3418,8 +3418,8 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
               return (
                 <div key={f.id} style={{position:'relative',aspectRatio:'1/1',border:'1px solid var(--border)',borderRadius:'6px',overflow:'hidden',background:'var(--bg-card)',cursor:'pointer'}} onClick={()=>openViewer(f)}>
                   {thumbUrls[f.id] && (isVideo
-                    ? <video src={thumbUrls[f.id]+'#t=0.1'} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'cover'}} />
-                    : <img src={thumbUrls[f.id]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                    ? <video src={thumbUrls[f.id]+'#t=0.1'} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'cover',filter:privacyMode?'blur(18px)':'none',transition:'filter .2s'}} onMouseEnter={e=>{if(privacyMode)e.currentTarget.style.filter='none';}} onMouseLeave={e=>{if(privacyMode)e.currentTarget.style.filter='blur(18px)';}} />
+                    : <img src={thumbUrls[f.id]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',filter:privacyMode?'blur(18px)':'none',transition:'filter .2s'}} onMouseEnter={e=>{if(privacyMode)e.currentTarget.style.filter='none';}} onMouseLeave={e=>{if(privacyMode)e.currentTarget.style.filter='blur(18px)';}} />
                   )}
                   {isVideo && <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:'32px',color:'var(--gold)',textShadow:'0 2px 6px #000',pointerEvents:'none'}}>▶</div>}
                   <div style={{position:'absolute',top:'4px',left:'4px',background:'rgba(0,0,0,0.75)',color:f.uploaded_by_role==='admin'?'var(--gold)':'#7bb8ff',fontSize:'9px',padding:'2px 5px',borderRadius:'3px',letterSpacing:'1px'}}>{f.uploaded_by_role==='admin'?'👑':'D'+debtorNumber}</div>
