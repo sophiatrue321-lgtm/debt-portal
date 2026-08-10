@@ -833,6 +833,35 @@ body {
 .p2-result-title { font-family:'Cormorant Garamond',serif; font-size:28px; color:var(--te-gold); letter-spacing:2px; margin-bottom:8px; }
 .p2-result-detail { color:var(--te-text-dim); font-size:14px; line-height:1.7; }
 
+/* ========== EVIDENCE VAULT ========== */
+.ev-hero { padding: 32px 20px 12px; text-align:center; }
+.ev-hero-title { font-family:'Cormorant Garamond',serif; font-size:34px; color:var(--te-gold); letter-spacing:3px; }
+.ev-hero-sub { font-family:'Cormorant Garamond',serif; font-size:16px; color:var(--te-text-dim); font-style:italic; margin-top:6px; }
+.ev-upload-card { background:var(--te-surface); border:1px solid var(--te-border); border-radius:6px; padding:16px 18px; margin:12px 20px; text-align:center; }
+.ev-upload-btn { background:var(--te-gold); color:#0a0a0a; border:none; padding:12px 22px; font-size:13px; font-weight:600; letter-spacing:2px; text-transform:uppercase; border-radius:4px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+.ev-upload-btn:disabled { opacity:.45; cursor:not-allowed; }
+.ev-upload-status { color:var(--te-text-dim); font-size:12px; margin-top:8px; font-style:italic; min-height:14px; }
+.ev-upload-status.err { color:var(--te-red); }
+.ev-upload-status.ok { color:var(--te-green); }
+.ev-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px; padding:12px 20px 40px; }
+.ev-card { position:relative; aspect-ratio:1/1; border:1px solid var(--te-border); border-radius:6px; overflow:hidden; cursor:pointer; background:var(--te-surface); transition:transform .15s, border-color .15s; }
+.ev-card:hover { border-color:var(--te-gold-dim); transform:translateY(-2px); }
+.ev-card .ev-thumb { width:100%; height:100%; object-fit:cover; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+.ev-card .ev-vid-icon { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:32px; color:var(--te-gold); text-shadow:0 2px 8px #000; pointer-events:none; }
+.ev-card .ev-meta { position:absolute; left:0; right:0; bottom:0; background:linear-gradient(transparent,rgba(0,0,0,0.85)); color:var(--te-text); font-size:10px; padding:14px 8px 6px; letter-spacing:.4px; }
+.ev-card .ev-meta-time { color:var(--te-gold); font-family:'Cormorant Garamond',serif; font-size:11px; letter-spacing:1px; }
+.ev-card.ev-empty-state { grid-column:1 / -1; aspect-ratio:auto; padding:32px; text-align:center; color:var(--te-text-dim); font-style:italic; cursor:default; border:1px dashed var(--te-border); }
+.ev-card.ev-empty-state:hover { transform:none; border-color:var(--te-border); }
+.ev-card .ev-uploader-tag { position:absolute; top:6px; left:6px; background:rgba(0,0,0,0.7); color:var(--te-gold); font-size:9px; padding:2px 6px; border-radius:3px; letter-spacing:1px; text-transform:uppercase; }
+
+/* Viewer overlay */
+.ev-viewer-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px; -webkit-user-select:none; user-select:none; }
+.ev-viewer-inner { position:relative; max-width:100%; max-height:100%; display:flex; flex-direction:column; align-items:center; }
+.ev-viewer-media { position:relative; max-width:100%; max-height:80vh; display:flex; align-items:center; justify-content:center; }
+.ev-viewer-media img, .ev-viewer-media video { max-width:100%; max-height:80vh; -webkit-user-select:none; user-select:none; -webkit-user-drag:none; }
+.ev-viewer-watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-18deg); color:rgba(201,168,76,0.32); font-family:'Cormorant Garamond',serif; font-size:24px; letter-spacing:4px; pointer-events:none; text-align:center; z-index:2; white-space:nowrap; }
+.ev-viewer-close-hint { color:var(--te-text-dim); font-size:11px; margin-top:14px; letter-spacing:2px; text-transform:uppercase; }
+
 </style>
 </head>
 <body>
@@ -879,6 +908,7 @@ body {
     <button class="nav-tab" data-tab="stipulations" onclick="switchTab(this)">Stipulations</button>
     <button class="nav-tab" data-tab="info" onclick="switchTab(this)">Info</button>
     <button class="nav-tab" data-tab="phase2" id="navTabPhase2" onclick="switchTab(this);loadPhase2();">Phase 2 🔒</button>
+    <button class="nav-tab" data-tab="evidence" onclick="switchTab(this);loadEvidence();">Evidence 🗄️</button>
   </div>
 
   <div class="app-body">
@@ -1240,6 +1270,29 @@ body {
     <div class="tab-panel" id="tab-phase2">
       <div id="phase2Content">
         <div class="p2-loading"><div class="spinner"></div><div class="p2-loading-text">Reading the door...</div></div>
+      </div>
+    </div>
+
+    <!-- ========== EVIDENCE VAULT TAB ========== -->
+    <div class="tab-panel" id="tab-evidence">
+      <div class="ev-hero">
+        <div class="ev-hero-title">🗄️ EVIDENCE VAULT</div>
+        <div class="ev-hero-sub">Everything you upload here is permanent. You cannot remove it. Only I can.</div>
+      </div>
+      <div class="ev-upload-card">
+        <input type="file" id="evFileInput" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-m4v" style="display:none;" onchange="uploadEvidence(event)">
+        <button class="ev-upload-btn" onclick="document.getElementById('evFileInput').click()">＋ Upload evidence (image or video, max 100 MB)</button>
+        <div id="evUploadStatus" class="ev-upload-status"></div>
+      </div>
+      <div id="evidenceGrid" class="ev-grid"><div class="p2-loading"><div class="spinner"></div><div class="p2-loading-text">Opening the vault…</div></div></div>
+    </div>
+
+    <!-- Evidence viewer modal (created dynamically) -->
+    <div id="evViewerOverlay" class="ev-viewer-overlay" style="display:none;" onclick="closeEvidenceViewer(event)" oncontextmenu="return false;">
+      <div class="ev-viewer-inner" oncontextmenu="return false;">
+        <div class="ev-viewer-watermark" id="evViewerWatermark"></div>
+        <div id="evViewerMedia" class="ev-viewer-media"></div>
+        <div class="ev-viewer-close-hint">Tap outside to close</div>
       </div>
     </div>
 
@@ -3218,6 +3271,155 @@ function renderP2PPComplete() {
     + '  <div class="p2-result-detail" style="margin-top:14px;font-style:italic;">Now we begin properly.</div>'
     + '</div>'
     + (c && tier ? renderP2ContractSummary(c, tier) : '');
+}
+
+// =====================================================
+// EVIDENCE VAULT
+// =====================================================
+var evidenceFiles = [];
+
+function evEsc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function evFmtDate(iso) {
+  try {
+    var d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) + ' ' +
+           d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+  } catch(e) { return iso; }
+}
+
+async function loadEvidence() {
+  if (!currentProfile) return;
+  var grid = document.getElementById('evidenceGrid');
+  grid.innerHTML = '<div class="p2-loading"><div class="spinner"></div><div class="p2-loading-text">Opening the vault…</div></div>';
+  try {
+    var r = await sb.from('evidence_files')
+      .select('*')
+      .eq('profile_id', currentProfile.id)
+      .order('uploaded_at', { ascending: false });
+    if (r.error) throw r.error;
+    evidenceFiles = r.data || [];
+    renderEvidence();
+  } catch (err) {
+    grid.innerHTML = '<div class="ev-card ev-empty-state">The vault refused to open. Try again.</div>';
+    console.error('loadEvidence error', err);
+  }
+}
+
+function renderEvidence() {
+  var grid = document.getElementById('evidenceGrid');
+  if (evidenceFiles.length === 0) {
+    grid.innerHTML = '<div class="ev-card ev-empty-state">Nothing here yet. Upload proof of anything I have asked for.</div>';
+    return;
+  }
+  var html = '';
+  evidenceFiles.forEach(function(f) {
+    var isVideo = (f.file_type || '').indexOf('video') === 0;
+    html += '<div class="ev-card" onclick="openEvidenceViewer(\'' + f.id + '\')">'
+      + '  <div class="ev-uploader-tag">' + (f.uploaded_by_role === 'admin' ? '👑' : 'You') + '</div>'
+      + '  <div class="ev-thumb-slot" data-file-id="' + f.id + '"></div>'
+      + (isVideo ? '<div class="ev-vid-icon">▶</div>' : '')
+      + '  <div class="ev-meta"><div class="ev-meta-time">' + evEsc(evFmtDate(f.uploaded_at)) + '</div></div>'
+      + '</div>';
+  });
+  grid.innerHTML = html;
+  // Load thumbnails via signed URLs (short-lived, per-view)
+  evidenceFiles.forEach(function(f) { evLoadThumb(f); });
+}
+
+async function evLoadThumb(f) {
+  var slot = document.querySelector('.ev-thumb-slot[data-file-id="' + f.id + '"]');
+  if (!slot) return;
+  try {
+    var s = await sb.storage.from('evidence').createSignedUrl(f.storage_path, 120);
+    if (s.error) throw s.error;
+    var isVideo = (f.file_type || '').indexOf('video') === 0;
+    if (isVideo) {
+      // Use video element as thumbnail — first frame acts as poster
+      slot.outerHTML = '<video class="ev-thumb" muted playsinline preload="metadata" src="' + evEsc(s.data.signedUrl) + '#t=0.1"></video>';
+    } else {
+      slot.outerHTML = '<img class="ev-thumb" alt="" src="' + evEsc(s.data.signedUrl) + '" oncontextmenu="return false;" draggable="false">';
+    }
+  } catch(err) {
+    slot.outerHTML = '<div class="ev-thumb" style="display:flex;align-items:center;justify-content:center;background:var(--te-surface2);color:var(--te-text-dim);font-size:11px;">Missing</div>';
+  }
+}
+
+async function uploadEvidence(evt) {
+  var file = evt.target.files && evt.target.files[0];
+  evt.target.value = '';
+  if (!file || !currentProfile) return;
+  var status = document.getElementById('evUploadStatus');
+  status.className = 'ev-upload-status';
+  if (file.size > 104857600) { status.className = 'ev-upload-status err'; status.textContent = 'Too big — 100 MB max.'; return; }
+  var allowed = ['image/jpeg','image/jpg','image/png','image/gif','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm','video/x-msvideo','video/x-matroska','video/x-m4v'];
+  if (allowed.indexOf(file.type) === -1) { status.className = 'ev-upload-status err'; status.textContent = 'Unsupported file type: ' + file.type; return; }
+
+  status.textContent = 'Uploading…';
+  var fileId = crypto.randomUUID();
+  var ext = file.name.split('.').pop().toLowerCase();
+  var storagePath = currentProfile.id + '/' + fileId + '.' + ext;
+  var captionTime = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+
+  try {
+    var up = await sb.storage.from('evidence').upload(storagePath, file, { contentType: file.type, upsert: false });
+    if (up.error) throw up.error;
+    var ins = await sb.from('evidence_files').insert({
+      id: fileId,
+      profile_id: currentProfile.id,
+      storage_path: storagePath,
+      file_name: file.name,
+      file_type: file.type,
+      file_size_bytes: file.size,
+      uploaded_by: currentProfile.id,
+      uploaded_by_role: 'debtor',
+      caption: 'Uploaded ' + captionTime
+    });
+    if (ins.error) throw ins.error;
+    status.className = 'ev-upload-status ok';
+    status.textContent = '✓ Uploaded — the Empress will see this.';
+    await loadEvidence();
+    setTimeout(function(){ status.textContent = ''; status.className = 'ev-upload-status'; }, 4000);
+  } catch(err) {
+    status.className = 'ev-upload-status err';
+    status.textContent = 'Upload failed: ' + (err.message || err);
+    console.error('uploadEvidence error', err);
+  }
+}
+
+async function openEvidenceViewer(fileId) {
+  var f = evidenceFiles.find(function(x){ return x.id === fileId; });
+  if (!f) return;
+  var overlay = document.getElementById('evViewerOverlay');
+  var media = document.getElementById('evViewerMedia');
+  var wm = document.getElementById('evViewerWatermark');
+  var code = currentProfile.debtor_code || ('D' + (currentProfile.debtor_number || '???'));
+  var viewTime = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+  wm.textContent = code + ' · viewed ' + viewTime;
+  media.innerHTML = '<div style="color:var(--te-text-dim);font-size:12px;">Loading…</div>';
+  overlay.style.display = 'flex';
+  try {
+    var s = await sb.storage.from('evidence').createSignedUrl(f.storage_path, 45);
+    if (s.error) throw s.error;
+    var isVideo = (f.file_type || '').indexOf('video') === 0;
+    if (isVideo) {
+      media.innerHTML = '<video controls autoplay playsinline controlsList="nodownload noremoteplayback" disablepictureinpicture oncontextmenu="return false;" src="' + evEsc(s.data.signedUrl) + '"></video>';
+    } else {
+      media.innerHTML = '<img alt="" src="' + evEsc(s.data.signedUrl) + '" oncontextmenu="return false;" draggable="false">';
+    }
+  } catch(err) {
+    media.innerHTML = '<div style="color:var(--te-red);">Could not open file.</div>';
+  }
+}
+
+function closeEvidenceViewer(evt) {
+  if (evt && evt.target && evt.target.closest('.ev-viewer-media')) return;
+  var overlay = document.getElementById('evViewerOverlay');
+  overlay.style.display = 'none';
+  document.getElementById('evViewerMedia').innerHTML = '';
 }
 
 // ===== INIT =====
