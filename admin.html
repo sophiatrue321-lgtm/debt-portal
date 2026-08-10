@@ -1212,6 +1212,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         <button className={`tab ${tab==='ledger'?'active':''}`} onClick={()=>setTab('ledger')}>Ledger</button>
         <button className={`tab ${tab==='tokens'?'active':''}`} onClick={()=>setTab('tokens')}>Tokens</button>
         <button className={`tab ${tab==='contract'?'active':''}`} onClick={()=>setTab('contract')}>Contract</button>
+        <button className={`tab ${tab==='evidence'?'active':''}`} onClick={()=>setTab('evidence')} style={{position:'relative'}}>🗄️ Evidence <EvidenceBadge pid={pid} /></button>
       </div>
 
       {tab==='ledger'&&(
@@ -1246,6 +1247,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         </div>
       )}
       {tab==='contract'&&!st&&<div className="empty-state">No contract data</div>}
+      {tab==='evidence'&&<EvidenceVault pid={pid} debtorNumber={pr.debtor_number} debtorName={displayName} />}
     </div>
   );
 }
@@ -3280,6 +3282,176 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   );
 }
   
+  // ========== EVIDENCE VAULT ==========
+  function EvidenceBadge({ pid }) {
+    const [count, setCount] = useState(0);
+    useEffect(() => {
+      if (!pid) return;
+      (async () => {
+        try {
+          const r = await sf('/rest/v1/evidence_files?profile_id=eq.' + pid + '&uploaded_by_role=eq.debtor&admin_last_seen_at=is.null&select=id');
+          setCount((r || []).length);
+        } catch(e) {}
+      })();
+    }, [pid]);
+    if (!count) return null;
+    return <span style={{background:'var(--red)',color:'#0a0a0a',fontSize:'10px',fontWeight:700,borderRadius:'10px',padding:'1px 6px',marginLeft:'4px',verticalAlign:'middle'}}>{count}</span>;
+  }
+
+  function EvidenceVault({ pid, debtorNumber, debtorName }) {
+    const [files, setFiles] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+    const [msg, setMsg] = useState('');
+    const [uploading, setUploading] = useState(false);
+    const [viewingFile, setViewingFile] = useState(null);
+    const [viewerUrl, setViewerUrl] = useState(null);
+    const [thumbUrls, setThumbUrls] = useState({});
+    const fileInputRef = useRef(null);
+
+    const load = useCallback(async () => {
+      if (!pid) return;
+      setLoading(true); setErr('');
+      try {
+        const r = await sf('/rest/v1/evidence_files?profile_id=eq.' + pid + '&select=*&order=uploaded_at.desc');
+        setFiles(r || []);
+        // Mark debtor-uploaded files as seen
+        try { await sf('/rest/v1/rpc/admin_mark_evidence_seen', { method:'POST', body: JSON.stringify({ p_profile_id: pid }) }); } catch(e) {}
+        // Generate thumb URLs
+        const thumbs = {};
+        for (const f of (r || [])) {
+          try {
+            const s = await sf('/storage/v1/object/sign/evidence/' + f.storage_path.split('/').map(encodeURIComponent).join('/'), {
+              method: 'POST', body: JSON.stringify({ expiresIn: 300 })
+            });
+            thumbs[f.id] = SB_URL + '/storage/v1' + s.signedURL;
+          } catch(e) {}
+        }
+        setThumbUrls(thumbs);
+      } catch(e) { setErr('Load failed: ' + e.message); }
+      setLoading(false);
+    }, [pid]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const doUpload = async (evt) => {
+      const file = evt.target.files && evt.target.files[0];
+      evt.target.value = '';
+      if (!file) return;
+      setMsg(''); setErr('');
+      if (file.size > 104857600) { setErr('Too big — 100 MB max.'); return; }
+      const allowed = ['image/jpeg','image/jpg','image/png','image/gif','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm','video/x-msvideo','video/x-matroska','video/x-m4v'];
+      if (!allowed.includes(file.type)) { setErr('Unsupported file type: ' + file.type); return; }
+      setUploading(true);
+      const fileId = crypto.randomUUID();
+      const ext = file.name.split('.').pop().toLowerCase();
+      const storagePath = pid + '/' + fileId + '.' + ext;
+      const captionTime = new Date().toISOString().replace('T',' ').substring(0,19) + ' UTC';
+      try {
+        // Upload binary via Storage REST
+        const upResp = await fetch(SB_URL + '/storage/v1/object/evidence/' + storagePath, {
+          method: 'POST',
+          headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': file.type, 'x-upsert': 'false' },
+          body: file
+        });
+        if (!upResp.ok) throw new Error('Upload HTTP ' + upResp.status);
+        await sf('/rest/v1/evidence_files', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=minimal' },
+          body: JSON.stringify({
+            id: fileId, profile_id: pid, storage_path: storagePath,
+            file_name: file.name, file_type: file.type, file_size_bytes: file.size,
+            uploaded_by: ADMIN_ID, uploaded_by_role: 'admin',
+            caption: 'Uploaded ' + captionTime
+          })
+        });
+        setMsg('✓ Uploaded.');
+        await load();
+      } catch(e) { setErr('Upload failed: ' + e.message); }
+      setUploading(false);
+    };
+
+    const doDelete = async (f) => {
+      if (!window.confirm('Delete ' + f.file_name + '? This is permanent.')) return;
+      try {
+        const r = await sf('/rest/v1/rpc/admin_delete_evidence', { method: 'POST', body: JSON.stringify({ p_file_id: f.id }) });
+        if (r && r.success === false) throw new Error(r.error);
+        setMsg('✓ Deleted.');
+        await load();
+      } catch(e) { setErr('Delete failed: ' + e.message); }
+    };
+
+    const doDownload = async (f) => {
+      try {
+        const s = await sf('/storage/v1/object/sign/evidence/' + f.storage_path.split('/').map(encodeURIComponent).join('/') + '?download=' + encodeURIComponent(f.file_name), {
+          method: 'POST', body: JSON.stringify({ expiresIn: 60 })
+        });
+        window.open(SB_URL + '/storage/v1' + s.signedURL, '_blank');
+      } catch(e) { setErr('Download failed: ' + e.message); }
+    };
+
+    const openViewer = async (f) => {
+      setViewingFile(f); setViewerUrl(null);
+      try {
+        const s = await sf('/storage/v1/object/sign/evidence/' + f.storage_path.split('/').map(encodeURIComponent).join('/'), {
+          method: 'POST', body: JSON.stringify({ expiresIn: 300 })
+        });
+        setViewerUrl(SB_URL + '/storage/v1' + s.signedURL);
+      } catch(e) { setErr('View failed: ' + e.message); setViewingFile(null); }
+    };
+
+    const fmt = (iso) => { try { const d = new Date(iso); return d.toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(e) { return iso; } };
+
+    return (
+      <div>
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'12px'}}>
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-m4v" style={{display:'none'}} onChange={doUpload} />
+          <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'10px 18px',borderRadius:'4px',cursor:'pointer',fontWeight:600,fontSize:'12px',letterSpacing:'1px'}}>{uploading ? 'Uploading…' : '＋ Upload evidence'}</button>
+          {msg && <span style={{marginLeft:'12px',color:'var(--green)',fontSize:'12px'}}>{msg}</span>}
+          {err && <div style={{color:'var(--red)',fontSize:'12px',marginTop:'8px'}}>{err} <button style={{background:'transparent',border:'none',color:'var(--red)',cursor:'pointer',marginLeft:'6px'}} onClick={()=>setErr('')}>×</button></div>}
+        </div>
+        {loading ? <div className="empty-state">Loading…</div> :
+          files.length === 0 ? <div className="empty-state">No evidence uploaded yet.</div> :
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:'10px'}}>
+            {files.map(f => {
+              const isVideo = (f.file_type||'').startsWith('video');
+              return (
+                <div key={f.id} style={{position:'relative',aspectRatio:'1/1',border:'1px solid var(--border)',borderRadius:'6px',overflow:'hidden',background:'var(--bg-card)',cursor:'pointer'}} onClick={()=>openViewer(f)}>
+                  {thumbUrls[f.id] && (isVideo
+                    ? <video src={thumbUrls[f.id]+'#t=0.1'} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                    : <img src={thumbUrls[f.id]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                  )}
+                  {isVideo && <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:'32px',color:'var(--gold)',textShadow:'0 2px 6px #000',pointerEvents:'none'}}>▶</div>}
+                  <div style={{position:'absolute',top:'4px',left:'4px',background:'rgba(0,0,0,0.75)',color:f.uploaded_by_role==='admin'?'var(--gold)':'#7bb8ff',fontSize:'9px',padding:'2px 5px',borderRadius:'3px',letterSpacing:'1px'}}>{f.uploaded_by_role==='admin'?'👑':'D'+debtorNumber}</div>
+                  {f.uploaded_by_role==='debtor' && !f.admin_last_seen_at && <div style={{position:'absolute',top:'4px',right:'4px',width:'8px',height:'8px',background:'var(--red)',borderRadius:'50%'}} />}
+                  <div style={{position:'absolute',left:0,right:0,bottom:0,background:'linear-gradient(transparent,rgba(0,0,0,0.9))',padding:'12px 6px 4px',display:'flex',gap:'4px',justifyContent:'flex-end'}}>
+                    <button onClick={(e)=>{e.stopPropagation();doDownload(f);}} title="Download" style={{background:'rgba(201,168,76,0.85)',color:'#0a0a0a',border:'none',padding:'3px 7px',borderRadius:'3px',cursor:'pointer',fontSize:'10px',fontWeight:600}}>⬇</button>
+                    <button onClick={(e)=>{e.stopPropagation();doDelete(f);}} title="Delete" style={{background:'rgba(196,92,92,0.85)',color:'#fff',border:'none',padding:'3px 7px',borderRadius:'3px',cursor:'pointer',fontSize:'10px',fontWeight:600}}>×</button>
+                  </div>
+                  <div style={{position:'absolute',left:'4px',bottom:'4px',color:'#fff',fontSize:'9px',letterSpacing:'0.5px',textShadow:'0 1px 3px #000'}}>{fmt(f.uploaded_at)}</div>
+                </div>
+              );
+            })}
+          </div>
+        }
+        {viewingFile && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>{setViewingFile(null);setViewerUrl(null);}}>
+            <div style={{position:'relative',maxWidth:'100%',maxHeight:'90vh'}} onClick={e=>e.stopPropagation()}>
+              {viewerUrl ? (
+                (viewingFile.file_type||'').startsWith('video')
+                  ? <video src={viewerUrl} controls autoPlay style={{maxWidth:'100%',maxHeight:'85vh'}} />
+                  : <img src={viewerUrl} alt="" style={{maxWidth:'100%',maxHeight:'85vh'}} />
+              ) : <div style={{color:'var(--text-muted)'}}>Loading…</div>}
+              <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:'11px',marginTop:'12px',letterSpacing:'1px'}}>
+                {viewingFile.file_name} · {fmt(viewingFile.uploaded_at)} · uploaded by {viewingFile.uploaded_by_role} · tap outside to close
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function Phase2Control({ pid, pr, onChange }) {
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState('');
