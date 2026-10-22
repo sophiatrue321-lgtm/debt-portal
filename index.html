@@ -1600,7 +1600,8 @@ function renderWeeklyProgress() {
   var weekPaid = 0;
   ledgerData.forEach(function(row) {
     if ((row.entry_type || '').toLowerCase() !== 'payment') return;
-    var d = new Date(row.created_at);
+    if (!row.entry_date) return;
+    var d = new Date(row.entry_date + 'T00:00:00');
     if (d >= weekStart && d <= weekEnd) weekPaid += Math.abs(row.amount || 0);
   });
   var pct = Math.min(100, Math.round((weekPaid / weeklyMin) * 100));
