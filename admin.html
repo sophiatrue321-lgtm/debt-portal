@@ -415,7 +415,6 @@ const getShopOrders = () => sf('/rest/v1/shop_orders?status=eq.pending&select=*,
 const getAllShopOrders = () => sf('/rest/v1/shop_orders?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=100');
 const markAddonUsed = (id) => sf('/rest/v1/rpc/admin_mark_addon_used', { method: 'POST', body: JSON.stringify({ p_order_id: id }) });
 const getDebtorAddons = (pid) => sf('/rest/v1/shop_orders?profile_id=eq.' + pid + '&status=eq.approved&is_used=eq.false&item_type=in.(interest_shield,fine_shield,task_shield)&select=*&order=created_at.desc');
-const resetUserPassword = (pid) => sf('/rest/v1/rpc/admin_reset_user_password', { method: 'POST', body: JSON.stringify({ p_profile_id: pid }) });
 const approveShopOrder = (id, note) => sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_admin_note: note || null }) });
 const rejectShopOrder = (id, reason) => sf('/rest/v1/rpc/reject_shop_order', { method: 'POST', body: JSON.stringify({ p_order_id: id, p_reason: reason || null }) });
 const getAllTasks = () => sf('/rest/v1/tasks?select=*,profiles!inner(display_name,debtor_number)&order=created_at.desc&limit=200');
@@ -424,10 +423,6 @@ const getShopItems = () => sf('/rest/v1/shop_items?select=*&order=category.asc,s
 const assignTask = (pid, title, desc, due, type) => sf('/rest/v1/rpc/admin_assign_task', { method: 'POST', body: JSON.stringify({ p_profile_id: pid, p_title: title, p_description: desc || null, p_due_date: due || null, p_task_type: type || 'admin_assigned' }) });
 const acceptTask = (id, note) => sf('/rest/v1/rpc/admin_accept_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_note: note || null }) });
 const fineTask = (id, amount, note) => sf('/rest/v1/rpc/admin_fine_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_fine_amount: amount, p_note: note || null }) });
-const cancelTask = (id, note) => sf('/rest/v1/rpc/admin_cancel_task', { method: 'POST', body: JSON.stringify({ p_task_id: id, p_note: note || null }) });
-const markTaskDay = (orderId, note) => sf('/rest/v1/rpc/admin_mark_task_day', { method: 'POST', body: JSON.stringify({ p_order_id: orderId, p_note: note || null }) });
-const undoTaskDay = (orderId) => sf('/rest/v1/rpc/admin_undo_task_day', { method: 'POST', body: JSON.stringify({ p_order_id: orderId }) });
-const getShopOrderById = (id) => sf('/rest/v1/shop_orders?id=eq.' + id + '&select=*');
 const getPendingTx = () => sf('/rest/v1/pending_transactions?status=eq.pending&select=*,profiles!inner(display_name,debtor_number,username,current_balance)&order=created_at.desc');
 
 const insertLedger = (e) => sf('/rest/v1/ledger', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(e) });
@@ -468,7 +463,40 @@ function fmtD(d) { return d ? new Date(d).toLocaleDateString('en-GB', { day: 'nu
 function ago(d) { const s = (Date.now() - new Date(d).getTime()) / 1000; if (s<60) return 'Just now'; if (s<3600) return `${Math.floor(s/60)}m ago`; if (s<86400) return `${Math.floor(s/3600)}h ago`; if (s<604800) return `${Math.floor(s/86400)}d ago`; return fmtD(d); }
 function tc(t) { if (!t) return ''; const l=t.toLowerCase(); if (l.includes('diamond')) return 't-diamond'; if (l.includes('platinum')) return 't-platinum'; if (l.includes('gold')) return 't-gold'; if (l.includes('silver')) return 't-silver'; return 't-bronze'; }
 function ini(n) { return n ? n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2) : '?'; }
-function calcTok(amt, wp, streak) { if (amt<=0) return 0; const b=Math.floor(amt/1.5); const m=streak>=4?1.5:1; let t=Math.floor(b*m); if (wp&&amt>wp) { const ex=amt-wp; const bb=Math.floor(ex/1.5); t+=Math.floor((Math.floor(bb*2)-bb)*m); } return t; }
+function calcTok(amt, wp, streak, priorWeeklyPaid) {
+  if (amt<=0) return 0;
+  const m = streak >= 4 ? 1.5 : 1;
+  const prior = priorWeeklyPaid || 0;
+  const newTotal = prior + amt;
+  
+  if (!wp || wp <= 0) {
+    // No weekly minimum — all at base rate
+    return Math.floor(Math.floor(amt / 1.5) * m);
+  }
+  
+  if (newTotal <= wp) {
+    // Still under weekly minimum — all at base rate
+    return Math.floor(Math.floor(amt / 1.5) * m);
+  }
+  
+  // Some or all of this payment is above minimum
+  const alreadyOverMin = prior >= wp;
+  let normalPart, overPart;
+  
+  if (alreadyOverMin) {
+    // Entire payment is overpayment (weekly min already met in prior payments)
+    normalPart = 0;
+    overPart = amt;
+  } else {
+    // Part normal, part overpayment
+    normalPart = wp - prior;
+    overPart = amt - normalPart;
+  }
+  
+  const normalTokens = Math.floor(normalPart / 1.5);
+  const overTokens = Math.floor(overPart / 1.5) * 2;
+  return Math.floor((normalTokens + overTokens) * m);
+}
   // ========== WEEK HELPERS ==========
 function getWeekStart(date) {
   const d = new Date(date);
@@ -799,29 +827,83 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
   const [spinDone, setSpinDone] = useState(() => {
     try { return JSON.parse(localStorage.getItem('te_spin_done') || '{}'); } catch { return {}; }
   });
-  const toggleMessaged = (e, id) => { e.stopPropagation(); const nxt = {...messaged, [id]: !messaged[id]}; setMessaged(nxt); localStorage.setItem('te_messaged', JSON.stringify(nxt)); };
-  const toggleSpin = (e, id) => { e.stopPropagation(); const nxt = {...spinDone, [id]: !spinDone[id]}; setSpinDone(nxt); localStorage.setItem('te_spin_done', JSON.stringify(nxt)); };
+
+  const toggleMessaged = (e, id) => {
+    e.stopPropagation();
+    const nxt = {...messaged, [id]: !messaged[id]};
+    setMessaged(nxt);
+    localStorage.setItem('te_messaged', JSON.stringify(nxt));
+  };
+  const toggleSpin = (e, id) => {
+    e.stopPropagation();
+    const nxt = {...spinDone, [id]: !spinDone[id]};
+    setSpinDone(nxt);
+    localStorage.setItem('te_spin_done', JSON.stringify(nxt));
+  };
+
+  // Reset messaged flags if a payment was logged this week for that debtor
   useEffect(() => {
     if (!activity || activity.length === 0) return;
-    const weekStart = getWeekStart(new Date()); const updated = {...messaged}; let changed = false;
-    profiles.forEach(p => { if (messaged[p.id]) { const hasPay = activity.some(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment') && new Date(a.created_at) >= weekStart); if (hasPay) { updated[p.id] = false; changed = true; } } });
+    const weekStart = getWeekStart(new Date());
+    const updated = {...messaged};
+    let changed = false;
+    profiles.forEach(p => {
+      if (messaged[p.id]) {
+        const hasPay = activity.some(a => a.profile_id === p.id && (a.entry_type||'').toLowerCase().includes('payment') && new Date(a.created_at) >= weekStart);
+        if (hasPay) { updated[p.id] = false; changed = true; }
+      }
+    });
     if (changed) { setMessaged(updated); localStorage.setItem('te_messaged', JSON.stringify(updated)); }
   }, [activity, profiles]);
+
+  // Reset spin flags on Sunday (new week)
   useEffect(() => {
-    const lastReset = localStorage.getItem('te_spin_reset_week'); const thisWeek = getWeekStart(new Date()).toISOString();
-    if (lastReset !== thisWeek) { setSpinDone({}); localStorage.setItem('te_spin_done', '{}'); localStorage.setItem('te_spin_reset_week', thisWeek); setMessaged({}); localStorage.setItem('te_messaged', '{}'); }
+    const lastReset = localStorage.getItem('te_spin_reset_week');
+    const thisWeek = getWeekStart(new Date()).toISOString();
+    if (lastReset !== thisWeek) {
+      setSpinDone({});
+      localStorage.setItem('te_spin_done', '{}');
+      localStorage.setItem('te_spin_reset_week', thisWeek);
+      setMessaged({});
+      localStorage.setItem('te_messaged', '{}');
+    }
   }, []);
-  const fl = profiles.filter(p => {
-    const s=q.toLowerCase(); if (!s) return true; const un = usernames[p.debtor_number] || '';
+
+  // Only show active debtors (hide archived)
+  const active = profiles.filter(p => p.is_active !== false && !(p.debtor_number||'').startsWith('ARCH_'));
+  const fl = active.filter(p => {
+    const s=q.toLowerCase();
+    if (!s) return true;
+    const un = usernames[p.debtor_number] || '';
     return (p.display_name||'').toLowerCase().includes(s) || (p.debtor_number||'').toLowerCase().includes(s) || un.toLowerCase().includes(s);
   });
+  // Calculate available numbers
+  const usedNums = new Set(active.map(p => parseInt(p.debtor_number)).filter(n => !isNaN(n)));
+  const maxNum = Math.max(...usedNums, 0);
+  const avail = [];
+  for (let i = 1; i <= Math.max(maxNum + 3, 22); i++) {
+    if (!usedNums.has(i)) avail.push(String(i).padStart(3,'0'));
+  }
   return (
     <div className="page">
       <div className="page-title">Debtors</div>
+      {/* Available Numbers Box */}
+      <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'12px 14px',marginBottom:'14px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'8px'}}>
+          <span style={{fontSize:'11px',fontWeight:600,color:'var(--gold)',textTransform:'uppercase',letterSpacing:'1px'}}>Numbers Available</span>
+          <span style={{fontSize:'11px',color:'var(--text-dim)'}}>{avail.length} open</span>
+        </div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
+          {avail.map(n=>(
+            <span key={n} style={{background:'var(--bg-input)',border:'1px solid var(--border-gold)',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'var(--gold)',fontWeight:500,letterSpacing:'0.5px'}}>D{n}</span>
+          ))}
+        </div>
+      </div>
       <div className="search-bar"><span className="search-icon">🔍</span><input placeholder="Search debtors..." value={q} onChange={e=>setQ(e.target.value)} /></div>
       <div className="debtor-list">
         {fl.map(p=>{
-          const st = stips.find(s=>s.profile_id===p.id); const un = usernames[p.debtor_number];
+          const st = stips.find(s=>s.profile_id===p.id);
+          const un = usernames[p.debtor_number];
           const weeklyMin = parseFloat(p.weekly_payment) || parseFloat(st?.weekly_payment) || 0;
           const weekPaid = activity ? calcWeeklyPaid(p.id, activity.filter(a=>a.profile_id===p.id).map(a=>({...a,profile_id:p.id}))) : 0;
           const paidFull = weeklyMin > 0 && weekPaid >= weeklyMin;
@@ -834,20 +916,30 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
           <div className="debtor-row" key={p.id} onClick={()=>onView(p.id)} style={{borderColor:borderColor,background:bgColor}}>
             <div className="debtor-avatar">{ini(privacyMode ? p.debtor_number : p.display_name)}</div>
             <div className="debtor-info">
-              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>{paidFull && '✅ '}{isOverdue && '🚨 '}{p.interest_frozen && '🥶 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}</div>
+              <div className="debtor-name" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--text)')}}>
+                {paidFull && '✅ '}{isOverdue && '🚨 '}{privacyMode ? p.debtor_number : (p.display_name||'Unnamed')}
+              </div>
               {!privacyMode && un && <div className="debtor-username">@{un}</div>}
               <div className="debtor-meta">
                 {!privacyMode && <span>{p.debtor_number}</span>}
                 {p.tier&&<span className={`tb ${tc(p.tier)}`}>{p.tier}</span>}
                 {st&&st.payment_day&&<span style={{fontSize:'10px'}}>📅 {st.payment_day}</span>}
               </div>
-              {st && (<div className="debtor-contract-info">{st.weekly_payment && <span>💳 {fmt(st.weekly_payment)}/wk</span>}{st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}</div>)}
+              {st && (
+                <div className="debtor-contract-info">
+                  {st.weekly_payment && <span>💳 {fmt(st.weekly_payment)}/wk</span>}
+                  {st.contract_value && <span>📄 {fmt(st.contract_value)}</span>}
+                </div>
+              )}
+              {/* Checklist row */}
               <div style={{display:'flex',gap:'12px',marginTop:'6px',fontSize:'11px'}}>
                 <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: messaged[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
-                  <input type="checkbox" checked={!!messaged[p.id]} onChange={e=>toggleMessaged(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} /> 📨 Messaged
+                  <input type="checkbox" checked={!!messaged[p.id]} onChange={e=>toggleMessaged(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
+                  📨 Messaged
                 </label>
                 <label onClick={e=>e.stopPropagation()} style={{display:'flex',alignItems:'center',gap:'4px',cursor:'pointer',color: spinDone[p.id] ? 'var(--green)' : 'var(--text-muted)'}}>
-                  <input type="checkbox" checked={!!spinDone[p.id]} onChange={e=>toggleSpin(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} /> 🎡 Spin done
+                  <input type="checkbox" checked={!!spinDone[p.id]} onChange={e=>toggleSpin(e,p.id)} style={{accentColor:'var(--gold)',width:'14px',height:'14px'}} />
+                  🎡 Spin done
                 </label>
                 {weeklyMin > 0 && <span style={{color: paidFull ? 'var(--green)' : 'var(--text-muted)'}}>{fmt(weekPaid)}/{fmt(weeklyMin)}</span>}
               </div>
@@ -856,7 +948,8 @@ function DebtorList({ profiles, onView, stips, usernames, privacyMode, activity 
               <div className="debtor-balance" style={{color: paidFull ? 'var(--green)' : (isOverdue ? 'var(--red)' : 'var(--gold)')}}>{fmt(p.current_balance)}</div>
               {p.weekly_payment && <div className="debtor-weekly">{fmt(p.weekly_payment)}/wk</div>}
             </div>
-          </div>);
+          </div>
+          );
         })}
         {fl.length===0&&<div className="empty-state">No debtors found</div>}
       </div>
@@ -924,122 +1017,6 @@ function LowWheelTracker({ st, pid }) {
   );
 }
 
-function PasswordResetButton({ pid, debtorName, debtorNum }) {
-  const [confirming, setConfirming] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [result, setResult] = useState(null);
-  const [err, setErr] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const doReset = async () => {
-    setResetting(true); setErr('');
-    try {
-      const r = await resetUserPassword(pid);
-      if (r?.success) {
-        setResult(r);
-        setConfirming(false);
-      } else {
-        setErr('Reset failed — unexpected response');
-      }
-    } catch(e) {
-      setErr('Error: ' + e.message);
-    }
-    setResetting(false);
-  };
-
-  const copyPw = async () => {
-    if (!result?.temp_password) return;
-    try {
-      await navigator.clipboard.writeText(result.temp_password);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch(e) {
-      // Fallback for older browsers
-      const ta = document.createElement('textarea');
-      ta.value = result.temp_password;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const copyMessage = async () => {
-    if (!result?.temp_password) return;
-    const msg = `NEW temp password!\n${result.temp_password}\nLog in and set your own password — I've updated the back end 😈`;
-    try {
-      await navigator.clipboard.writeText(msg);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch(e) {
-      const ta = document.createElement('textarea');
-      ta.value = msg;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  if (result) {
-    return (
-      <div style={{background:'rgba(76,175,80,0.08)',border:'2px solid rgba(76,175,80,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
-        <div style={{fontSize:'14px',fontWeight:700,color:'var(--green)',marginBottom:'10px'}}>✅ Password reset complete</div>
-        <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px',lineHeight:1.6}}>
-          Temporary password for <strong style={{color:'var(--text)'}}>D{result.debtor_number} {result.display_name}</strong>:
-        </div>
-        <div style={{background:'var(--bg-input)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px',fontFamily:'monospace',fontSize:'15px',color:'var(--gold)',wordBreak:'break-all',textAlign:'center'}}>
-          {result.temp_password}
-        </div>
-        <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
-          <button className="btn btn-sm" onClick={copyPw} style={{flex:1}}>
-            {copied ? '✓ Copied!' : '📋 Copy Password'}
-          </button>
-          <button className="btn btn-sm btn-outline" onClick={copyMessage} style={{flex:1}}>
-            📨 Copy DM Message
-          </button>
-        </div>
-        <div style={{fontSize:'11px',color:'var(--text-muted)',lineHeight:1.5}}>
-          Send this to the debtor. They'll be forced to set a new password on first login. This dialog will close when you leave the page.
-        </div>
-        <button className="btn btn-sm btn-outline" onClick={()=>setResult(null)} style={{width:'100%',marginTop:'10px',fontSize:'11px'}}>
-          Close
-        </button>
-      </div>
-    );
-  }
-
-  if (confirming) {
-    return (
-      <div style={{background:'rgba(231,76,60,0.08)',border:'2px solid rgba(231,76,60,0.4)',borderRadius:'var(--radius)',padding:'16px',marginBottom:'16px'}}>
-        <div style={{fontSize:'14px',fontWeight:700,color:'var(--red)',marginBottom:'8px'}}>⚠️ Reset password for {debtorNum} {debtorName}?</div>
-        <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px',lineHeight:1.6}}>
-          This will invalidate their current password and generate a new temporary one. They'll need to log in with the temp password and set a new one.
-        </div>
-        {err && <div className="error-msg" style={{marginBottom:'10px'}}>{err}</div>}
-        <div style={{display:'flex',gap:'8px'}}>
-          <button className="btn btn-danger" onClick={doReset} disabled={resetting} style={{flex:1}}>
-            {resetting ? <span className="spinner"/> : '🔑 Yes, Reset Password'}
-          </button>
-          <button className="btn btn-outline" onClick={()=>{setConfirming(false);setErr('');}} disabled={resetting} style={{flex:1}}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <button className="btn btn-outline btn-sm" onClick={()=>setConfirming(true)} style={{width:'100%',marginBottom:'16px'}}>
-      🔑 Reset Password
-    </button>
-  );
-}
-  
 function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
   const [pr, setPr] = useState(null);
   const [lg, setLg] = useState([]);
@@ -1087,12 +1064,7 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
       <button className="back-btn" onClick={onBack}>← Back</button>
       <div className="detail-header">
         <div className="detail-avatar">{ini(displayName)}</div>
-        <div className="detail-name">{pr?.interest_frozen && <span title={pr.interest_frozen_note || 'Interest frozen'}>🥶 </span>}{displayName}</div>
-        {pr?.interest_frozen && (
-          <div style={{background:'rgba(120,180,255,0.10)',border:'1px solid rgba(120,180,255,0.35)',borderRadius:'var(--radius-sm)',padding:'8px 12px',margin:'8px auto 0',maxWidth:'420px',fontSize:'12px',color:'#7bb8ff',textAlign:'center'}}>
-            🥶 {pr.interest_frozen_note || 'Interest frozen — no interest may be added.'}
-          </div>
-        )}
+        <div className="detail-name">{displayName}</div>
         {!privacyMode && (
           <div className="detail-username">
             {editUn ? (
@@ -1111,7 +1083,6 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         <div className="detail-id">{pr.debtor_number}{pr.tier&&<span className={`tb ${tc(pr.tier)}`}>{pr.tier}</span>}</div>
         <div className="detail-balance">{fmt(pr.current_balance)}</div>
       </div>
-      <PasswordResetButton pid={pid} debtorName={displayName} debtorNum={pr.debtor_number} />
       {/* Weekly Payment Progress */}
       {weeklyMin > 0 && (
         <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'16px'}}>
@@ -1186,33 +1157,10 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         {showEditClauses && <EditClauses st={st} pid={pid} onSaved={reloadStips} />}
       </div>}
 
-      <Phase2Control pid={pid} pr={pr} onChange={async()=>{const fresh=await getProfile(pid);setPr(fresh);}} />
-
-      {pr?.is_active !== false && (
-        <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'10px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
-          <div>
-            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase'}}>Archive</div>
-            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'15px',color:'var(--text)',marginTop:'2px'}}>Frees up D{pr.debtor_number} for reuse. Removes from Wix showcase. Data kept in archived_debtors.</div>
-          </div>
-          <button onClick={async()=>{
-            const reason = window.prompt('Reason for archiving D' + pr.debtor_number + '? (optional)', 'Contract completed');
-            if (reason === null) return;
-            if (!window.confirm('Archive ' + (pr.display_name||('D'+pr.debtor_number)) + '? This deactivates the profile, deletes their stipulations, and removes them from Wix. The data snapshot is preserved.')) return;
-            try {
-              const r = await sf('/rest/v1/rpc/admin_offboard_debtor', { method:'POST', body: JSON.stringify({ p_profile_id: pid, p_reason: reason||'Contract completed' }) });
-              if (r?.error) { alert('Error: ' + r.error); return; }
-              alert(r?.message || '🗄️ Debtor archived.');
-              onBack?.();
-            } catch(e) { alert('Error: ' + e.message); }
-          }} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',letterSpacing:'1px'}}>🗄️ Archive debtor</button>
-        </div>
-      )}
-
       <div className="tabs">
         <button className={`tab ${tab==='ledger'?'active':''}`} onClick={()=>setTab('ledger')}>Ledger</button>
         <button className={`tab ${tab==='tokens'?'active':''}`} onClick={()=>setTab('tokens')}>Tokens</button>
         <button className={`tab ${tab==='contract'?'active':''}`} onClick={()=>setTab('contract')}>Contract</button>
-        <button className={`tab ${tab==='evidence'?'active':''}`} onClick={()=>setTab('evidence')} style={{position:'relative'}}>🗄️ Evidence <EvidenceBadge pid={pid} /></button>
       </div>
 
       {tab==='ledger'&&(
@@ -1247,7 +1195,60 @@ function Detail({ pid, onBack, usernames, privacyMode, onUsernameUpdate }) {
         </div>
       )}
       {tab==='contract'&&!st&&<div className="empty-state">No contract data</div>}
-      {tab==='evidence'&&<EvidenceVault pid={pid} debtorNumber={pr.debtor_number} debtorName={displayName} privacyMode={privacyMode} />}
+
+      {/* === OFFBOARD DEBTOR === */}
+      <OffboardSection profile={pr} onDone={onBack} />
+    </div>
+  );
+}
+
+// ========== OFFBOARD DEBTOR ==========
+function OffboardSection({ profile, onDone }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [ld, setLd] = useState(false);
+  const [ok, setOk] = useState('');
+  const [err, setErr] = useState('');
+
+  if (!profile) return null;
+
+  const doOffboard = async () => {
+    if (confirmText !== profile.debtor_number) { setErr('Type the debtor number exactly to confirm'); return; }
+    setLd(true); setErr(''); setOk('');
+    try {
+      const result = await sf('/rest/v1/rpc/admin_offboard_debtor', { method: 'POST', body: JSON.stringify({ p_profile_id: profile.id }) });
+      if (result?.error) { setErr(result.error); }
+      else { setOk(`✅ ${profile.display_name} (${profile.debtor_number}) has been offboarded. Profile archived and marked inactive.`); setTimeout(() => onDone?.(), 3000); }
+    } catch(e) { setErr('Error: ' + e.message); }
+    setLd(false);
+  };
+
+  return (
+    <div style={{marginTop:'32px',borderTop:'1px solid rgba(231,76,60,0.2)',paddingTop:'24px'}}>
+      {!showConfirm ? (
+        <button className="btn btn-outline" onClick={()=>setShowConfirm(true)} style={{width:'100%',borderColor:'rgba(231,76,60,0.3)',color:'var(--red)'}}>
+          🚪 Offboard This Debtor
+        </button>
+      ) : (
+        <div style={{background:'rgba(231,76,60,0.06)',border:'1px solid rgba(231,76,60,0.3)',borderRadius:'var(--radius)',padding:'20px'}}>
+          <div style={{fontSize:'14px',fontWeight:600,color:'var(--red)',marginBottom:'8px'}}>⚠️ Offboard {profile.display_name}?</div>
+          <div style={{fontSize:'13px',color:'var(--text-dim)',lineHeight:1.6,marginBottom:'16px'}}>
+            This will archive their profile, mark them inactive, clear personal info, delete pending notifications/tasks/orders, and remove them from the Wix portal. This cannot be undone.
+          </div>
+          <div className="form-group">
+            <label className="form-label">Type "{profile.debtor_number}" to confirm</label>
+            <input className="fi" value={confirmText} onChange={e=>setConfirmText(e.target.value)} placeholder={profile.debtor_number} />
+          </div>
+          {err && <div className="error-msg" style={{marginBottom:'12px'}}>{err}</div>}
+          {ok && <div className="success-msg" style={{marginBottom:'12px'}}>{ok}</div>}
+          <div style={{display:'flex',gap:'8px'}}>
+            <button className="btn btn-danger" onClick={doOffboard} disabled={ld||confirmText!==profile.debtor_number} style={{flex:1}}>
+              {ld ? <span className="spinner"/> : '🚪 Confirm Offboard'}
+            </button>
+            <button className="btn btn-outline" onClick={()=>{setShowConfirm(false);setConfirmText('');setErr('');}} style={{flex:1}}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1346,8 +1347,8 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const [pct, setPct] = useState('');
   const [notes, setNotes] = useState('');
   const [payMethod, setPayMethod] = useState('');
-  const [addFee, setAddFee] = useState(false);
-  const [feeAmt, setFeeAmt] = useState('');
+  const [addFee, setAddFee] = useState(true);
+  const [feeAmt, setFeeAmt] = useState('5');
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
@@ -1369,20 +1370,30 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
   const fee = addFee ? (parseFloat(feeAmt)||0) : 0;
   const isPay = type==='Payment';
   const nb = isPay ? bal-ca+fee : bal+ca+fee;
-  const te = isPay&&pr ? calcTok(ca, parseFloat(pr.weekly_payment)||0, pr.payment_streak||0) : 0;
-
-  // Auto-set fee amount from stipulations; if no fee in contract, force-off
-  const stipHasFee = !!(st && st.admin_fee && /\d/.test(st.admin_fee));
+  const [weeklyPaidSoFar, setWeeklyPaidSoFar] = useState(0);
+  
+  // Fetch weekly paid when debtor changes
   useEffect(() => {
-    if (stipHasFee) {
+    if (!sid || !isPay) { setWeeklyPaidSoFar(0); return; }
+    (async () => {
+      try {
+        const weekStart = getWeekStart(new Date());
+        const res = await sf(`/rest/v1/ledger?profile_id=eq.${sid}&entry_type=ilike.payment&created_at=gte.${weekStart.toISOString()}&select=amount`);
+        const total = (res || []).reduce((s, l) => s + Math.abs(parseFloat(l.amount) || 0), 0);
+        setWeeklyPaidSoFar(total);
+      } catch(e) { setWeeklyPaidSoFar(0); }
+    })();
+  }, [sid, type]);
+  
+  const te = isPay&&pr ? calcTok(ca, parseFloat(pr.weekly_payment)||0, pr.payment_streak||0, weeklyPaidSoFar) : 0;
+
+  // Auto-set fee amount from stipulations
+  useEffect(() => {
+    if (st && st.admin_fee) {
       const feeMatch = st.admin_fee.match(/[£$]?(\d+(?:\.\d+)?)/);
       if (feeMatch) setFeeAmt(feeMatch[1]);
-      setAddFee(true);
-    } else {
-      setAddFee(false);
-      setFeeAmt('');
     }
-  }, [st, stipHasFee]);
+  }, [st]);
 
   // Load presets
   useEffect(() => {
@@ -1444,23 +1455,51 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
     if (!sid||ca<=0) { setErr('Fill in all fields with valid amounts'); return; }
     setLd(true); setErr(''); setOk('');
     try {
+      // Build wheel data if applicable
       let wheelData = null;
       if (isInt && sendSpinNotif && lastWheelData) {
-        wheelData = { segments: lastWheelData.segments, result_index: lastWheelData.idx, result_pct: parseFloat(pct), interest_amount: parseFloat(ca) || 0, new_balance: parseFloat(nb) || 0, show_animation: true };
+        wheelData = {
+          segments: lastWheelData.segments,
+          result_index: lastWheelData.idx,
+          result_pct: parseFloat(pct),
+          interest_amount: parseFloat(ca) || 0,
+          new_balance: parseFloat(nb) || 0,
+          show_animation: true
+        };
       }
+      
+      // Skip notification for interest wheel spins if toggle is off
       const shouldNotify = !(isInt && lastWheelData && !sendSpinNotif);
+
+      // Call server-side function — handles ledger, balance, tokens, notifications
       const result = await sf('/rest/v1/rpc/admin_add_transaction', {
         method: 'POST',
         body: JSON.stringify({
-          p_profile_id: sid, p_entry_type: type, p_amount: ca, p_admin_fee: fee,
-          p_description: notes || null, p_payment_method: payMethod || null,
-          p_interest_pct: isInt ? parseFloat(pct) : null, p_wheel_data: wheelData, p_send_notification: shouldNotify
+          p_profile_id: sid,
+          p_entry_type: type,
+          p_amount: ca,
+          p_admin_fee: fee,
+          p_description: notes || null,
+          p_payment_method: payMethod || null,
+          p_interest_pct: isInt ? parseFloat(pct) : null,
+          p_wheel_data: wheelData,
+          p_send_notification: shouldNotify
         })
       });
-      if (result?.error) { setErr(result.error); setLd(false); return; }
+
+      if (result?.error) {
+        setErr(result.error);
+        setLd(false);
+        return;
+      }
+
       let okMsg = `✅ ${result.entry_type} of ${fmt(result.amount)}${result.admin_fee>0?` + ${fmt(result.admin_fee)} fee`:''} recorded for ${result.debtor || pr?.display_name}. New balance: ${fmt(result.new_balance)}`;
-      if (result.tokens_awarded > 0) { okMsg += `. 🪙 ${result.tokens_awarded} tokens!`; if (result.is_overpay) okMsg += ` (2x overpay bonus — weekly total ${fmt(result.weekly_paid_after)} > ${fmt(result.weekly_min)} min)`; }
+      if (result.tokens_awarded > 0) {
+        okMsg += `. 🪙 ${result.tokens_awarded} tokens!`;
+        if (result.is_overpay) okMsg += ` (2x overpay bonus — weekly total ${fmt(result.weekly_paid_after)} > ${fmt(result.weekly_min)} min)`;
+      }
       if (shouldNotify) okMsg += '\n📨 Notification sent to debtor.';
+
       setOk(okMsg);
       setAmt(''); setPct(''); setNotes(''); setPayMethod(''); setShowWheel(false);
       onDone?.();
@@ -1474,7 +1513,7 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
       <div className="form-group"><label className="form-label">Debtor</label>
         <select className="fs" value={sid} onChange={e=>{setSid(e.target.value);setOk('');setShowWheel(false);if(e.target.value){getDebtorAddons(e.target.value).then(r=>setDebtorAddons(r||[])).catch(()=>setDebtorAddons([]));}else{setDebtorAddons([]);}}}>
           <option value="">Select debtor...</option>
-          {profiles.map(p=>{const un=p.username?` @${p.username}`:'';return(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name}{privacyMode?'':un} ({fmt(p.current_balance)})</option>);})}
+          {profiles.filter(p=>p.is_active!==false&&!(p.debtor_number||'').startsWith('ARCH_')).map(p=>{const un=p.username?` @${p.username}`:'';return(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name}{privacyMode?'':un} ({fmt(p.current_balance)})</option>);})}
         </select>
       </div>
 
@@ -1506,16 +1545,10 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
         </div>
       )}
 
-      {pr?.interest_frozen && (
-        <div style={{background:'rgba(120,180,255,0.10)',border:'1px solid rgba(120,180,255,0.35)',borderRadius:'var(--radius)',padding:'12px 14px',marginBottom:'12px',fontSize:'13px',color:'#7bb8ff'}}>
-          🥶 <b>Interest frozen</b> for {pr.display_name || ('D'+pr.debtor_number)}. {pr.interest_frozen_note || 'No interest may be added.'} Interest option is disabled below.
-        </div>
-      )}
-
       <div className="form-group"><label className="form-label">Type</label>
-        <select className="fs" value={type} onChange={e=>{const v=e.target.value; if(v==='Interest' && pr?.interest_frozen){alert('🥶 Interest is frozen for this debtor.');return;} setType(v);setShowWheel(false);}}>
+        <select className="fs" value={type} onChange={e=>{setType(e.target.value);setShowWheel(false);}}>
           <option value="Payment">Payment (reduces balance)</option>
-          <option value="Interest" disabled={pr?.interest_frozen}>{pr?.interest_frozen ? '🥶 Interest (frozen)' : 'Interest (% of balance)'}</option>
+          <option value="Interest">Interest (% of balance)</option>
           <option value="Fine">Fine</option>
           <option value="Deposit">Deposit</option>
           <option value="Debt Game">Debt Game</option>
@@ -1656,13 +1689,11 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
           </div>
         </div>
       )}
-      {stipHasFee ? (
-        <div className="form-group"><label className="form-label">Admin Fee</label>
-          <label className="cb-row"><input type="checkbox" checked={addFee} onChange={e=>setAddFee(e.target.checked)} /><span>Add admin fee</span></label>
-          {addFee&&<input className="fi" type="number" inputMode="decimal" placeholder="5.00" value={feeAmt} onChange={e=>setFeeAmt(e.target.value)} style={{marginTop:'8px'}} />}
-          <div className="form-hint">Rule: {st.admin_fee}</div>
-        </div>
-      ) : (sid && <div className="form-hint" style={{marginBottom:'14px'}}>No admin fee in this contract — fee field hidden.</div>)}
+      <div className="form-group"><label className="form-label">Admin Fee</label>
+        <label className="cb-row"><input type="checkbox" checked={addFee} onChange={e=>setAddFee(e.target.checked)} /><span>Add admin fee</span></label>
+        {addFee&&<input className="fi" type="number" inputMode="decimal" placeholder="5.00" value={feeAmt} onChange={e=>setFeeAmt(e.target.value)} style={{marginTop:'8px'}} />}
+        {st && st.admin_fee && <div className="form-hint">Rule: {st.admin_fee}</div>}
+      </div>
       <div className="form-group"><label className="form-label">Platform</label>
         <select className="fs" value={payMethod} onChange={e=>setPayMethod(e.target.value)}>
           <option value="">Select platform...</option>
@@ -1687,6 +1718,8 @@ function AddTx({ profiles, stips, onDone, privacyMode }) {
           <div className="preview-row"><span>{type}</span><span style={{color:isPay?'var(--green)':'var(--red)'}}>{isPay?'-':'+'}{fmt(ca)}</span></div>
           {fee>0&&<div className="preview-row"><span>Admin Fee</span><span style={{color:'var(--red)'}}>+{fmt(fee)}</span></div>}
           {te>0&&<div className="preview-row"><span>Tokens Earned</span><span style={{color:'var(--blue)'}}>🪙 +{te}</span></div>}
+          {isPay&&weeklyPaidSoFar>0&&<div className="preview-row"><span>Weekly paid so far</span><span style={{color:'var(--text-dim)'}}>{fmt(weeklyPaidSoFar)} + {fmt(ca)} = {fmt(weeklyPaidSoFar+ca)}</span></div>}
+          {isPay&&pr?.weekly_payment&&weeklyPaidSoFar+ca>parseFloat(pr.weekly_payment)&&<div className="preview-row"><span>⚡ Overpay bonus active</span><span style={{color:'var(--green)'}}>2x on {fmt(Math.max(0, weeklyPaidSoFar+ca-parseFloat(pr.weekly_payment)))} above {fmt(pr.weekly_payment)}/wk</span></div>}
           <div className="preview-row total"><span>New Balance</span><span>{fmt(nb)}</span></div>
         </div>
       )}
@@ -1847,19 +1880,6 @@ function Onboard({ profiles, onDone }) {
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
 
-  // Archived debtors list (for re-onboarding)
-  const [archived, setArchived] = useState([]);
-  const [selectedArchive, setSelectedArchive] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await sf('/rest/v1/rpc/admin_get_archived_debtors', { method:'POST', body: JSON.stringify({}) });
-        setArchived(Array.isArray(r) ? r : []);
-      } catch(e) { /* ignore */ }
-    })();
-  }, []);
-
   // Profile fields
   const [debtorNum, setDebtorNum] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -2007,35 +2027,9 @@ try {
 setSaving(false);
 };
 
-  const applyArchive = (archiveId) => {
-    setSelectedArchive(archiveId);
-    if (!archiveId) return;
-    const a = archived.find(x => x.id === archiveId);
-    if (!a) return;
-    setDisplayName(a.display_name || '');
-    setUsername(a.username || '');
-    setTier(a.tier || 'Bronze');
-    setNotes((a.offboard_reason ? 'Re-onboarded. Previous: ' + a.offboard_reason + ' · £' + Number(a.total_payments||0).toFixed(2) + ' lifetime payments.' : ''));
-  };
-
   return (
     <div className="page">
       <div className="page-title">🆕 Onboard New Debtor</div>
-
-      {archived.length > 0 && (
-        <div className="settings-section">
-          <div className="settings-title">🗄️ Archived debtors ({archived.length})</div>
-          <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>Pick a previously archived debtor to pre-fill name/username/tier below. You still pick the debtor number — leave the suggested next number, or type their old one (now freed up) if you want to reuse it.</div>
-          <select className="fs" value={selectedArchive} onChange={e=>applyArchive(e.target.value)}>
-            <option value="">— Onboard fresh / pick from archive —</option>
-            {archived.map(a => (
-              <option key={a.id} value={a.id}>
-                D{a.debtor_number} · {a.display_name || '(no name)'} · {a.offboard_reason || 'archived'} · {a.offboarded_at ? new Date(a.offboarded_at).toLocaleDateString('en-GB') : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div className="settings-section">
         <div className="settings-title">👤 Debtor Info</div>
@@ -2182,7 +2176,7 @@ function Guide() {
 4. Tap the Onboard button
 
 This automatically:
-   ✅ Creates their login account (d{number}@trueeempire.local)
+   ✅ Creates their login account (d019@trueeempire.local)
    ✅ Generates a temp password
    ✅ Creates their Supabase profile
    ✅ Creates their contract terms (stipulations)
@@ -2287,7 +2281,7 @@ When you add a transaction via the ➕ Add tab:
 4. Only currentBalance is updated — all other Wix fields are preserved
 
 If a balance doesn't update on the portal, check:
-• Their Wix ID matches (Supabase "XXX" → Wix "DXXX")
+• Their Wix ID matches (Supabase "008" → Wix "D008")
 • The Wix API key in app_settings is still valid`
     },
     {
@@ -2523,9 +2517,13 @@ function Approvals({ pending, onDone, privacyMode }) {
 
 // ========== Admin Leaderboard ==========
 
+// ========== BULK TASKS DATA ==========
+const getBulkTasks = () => sf('/rest/v1/bulk_tasks?select=*&order=created_at.desc');
+const getBulkAssignments = (taskId) => sf(`/rest/v1/bulk_task_assignments?bulk_task_id=eq.${taskId}&select=*,profiles!inner(debtor_number,display_name,username,current_balance)&order=profiles(debtor_number).asc`);
+
 // ========== TASK MANAGER ==========
 function TaskManager({ tasks, profiles, onDone, privacyMode }) {
-  const [tab, setTab] = useState('pending');
+  const [tab, setTab] = useState('bulk');
   const [reviewItem, setReviewItem] = useState(null);
   const [fineAmt, setFineAmt] = useState('');
   const [fineNote, setFineNote] = useState('');
@@ -2533,14 +2531,6 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
-
-  // Day tracker (multi-day challenges) state
-  const [dayTrackerTask, setDayTrackerTask] = useState(null);   // the task row from tasks table
-  const [dayTrackerOrder, setDayTrackerOrder] = useState(null); // the linked shop_order with task_* fields
-  const [dayTrackerLoading, setDayTrackerLoading] = useState(false);
-  const [dayTrackerErr, setDayTrackerErr] = useState('');
-
-  // Assign task form
   const [assignPid, setAssignPid] = useState('');
   const [assignTitle, setAssignTitle] = useState('');
   const [assignDesc, setAssignDesc] = useState('');
@@ -2549,6 +2539,88 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
   const [assigning, setAssigning] = useState(false);
   const [assignOk, setAssignOk] = useState('');
   const [taskShield, setTaskShield] = useState(null);
+
+  // === BULK TASKS STATE ===
+  const [bulkView, setBulkView] = useState('list');
+  const [bulkTasks, setBulkTasks] = useState([]);
+  const [selBulkTask, setSelBulkTask] = useState(null);
+  const [bulkAssignments, setBulkAssignments] = useState([]);
+  const [bulkLd, setBulkLd] = useState(false);
+  const [bTitle, setBTitle] = useState('');
+  const [bDesc, setBDesc] = useState('');
+  const [bDeadline, setBDeadline] = useState('');
+  const [bFineAmt, setBFineAmt] = useState('');
+  const [bSelected, setBSelected] = useState({});
+  const [bSaving, setBSaving] = useState(false);
+  const [bOk, setBOk] = useState('');
+  const [bErr, setBErr] = useState('');
+  const [bSendNotif, setBSendNotif] = useState(true);
+  const [bFiningAll, setBFiningAll] = useState(false);
+  const [bFineOk, setBFineOk] = useState('');
+  const [showEndedTasks, setShowEndedTasks] = useState(false);
+
+  const loadBulkTasks = async () => { setBulkLd(true); try { const t = await getBulkTasks(); setBulkTasks(t || []); } catch(e) { console.error(e); } setBulkLd(false); };
+  useEffect(() => { if (tab === 'bulk') loadBulkTasks(); }, [tab]);
+
+  const openBulkTask = async (task) => { setSelBulkTask(task); setBulkView('detail'); setBFineOk(''); try { const a = await getBulkAssignments(task.id); setBulkAssignments(a || []); } catch(e) { console.error(e); setBulkAssignments([]); } };
+  const startBulkCreate = () => { setBulkView('create'); setBTitle(''); setBDesc(''); setBDeadline(''); setBFineAmt(''); setBOk(''); setBErr(''); const sel = {}; profiles.forEach(p => { if (p.is_active !== false) sel[p.id] = true; }); setBSelected(sel); };
+  const toggleBDebtor = (id) => setBSelected({...bSelected, [id]: !bSelected[id]});
+  const bSelectAll = () => { const sel = {}; profiles.forEach(p => { sel[p.id] = true; }); setBSelected(sel); };
+  const bSelectNone = () => setBSelected({});
+
+  const createBulkTask = async () => {
+    if (!bTitle.trim()) { setBErr('Task title is required'); return; }
+    const selectedIds = Object.entries(bSelected).filter(([k,v]) => v).map(([k]) => k);
+    if (selectedIds.length === 0) { setBErr('Select at least one debtor'); return; }
+    setBSaving(true); setBErr(''); setBOk('');
+    try {
+      const taskRes = await sf('/rest/v1/bulk_tasks', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ title: bTitle.trim(), description: bDesc.trim() || null, deadline: bDeadline || null, fine_amount: parseFloat(bFineAmt) || 0 }) });
+      const taskId = taskRes[0].id;
+      const assigns = selectedIds.map(pid => ({ bulk_task_id: taskId, profile_id: pid, status: 'assigned' }));
+      await sf('/rest/v1/bulk_task_assignments', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(assigns) });
+      if (bSendNotif) {
+        const notifs = selectedIds.map(pid => ({ profile_id: pid, notification_type: 'general', title: '📋 New Task Assigned', message: (bDesc.trim() || bTitle.trim()), created_at: new Date().toISOString() }));
+        await sf('/rest/v1/notifications', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(notifs) });
+      }
+      setBOk(`✅ Task assigned to ${selectedIds.length} debtors${bSendNotif ? ' + notifications sent' : ''}`);
+      await loadBulkTasks(); setTimeout(() => { setBulkView('list'); setBOk(''); }, 2000);
+    } catch(e) { setBErr('Error: ' + e.message); }
+    setBSaving(false);
+  };
+
+  const markBCompleted = async (assignId) => { try { await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString() }) }); setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'completed', completed_at: new Date().toISOString()} : a)); } catch(e) { console.error(e); } };
+  const markBAssigned = async (assignId) => { try { await sf(`/rest/v1/bulk_task_assignments?id=eq.${assignId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'assigned', completed_at: null }) }); setBulkAssignments(bulkAssignments.map(a => a.id === assignId ? {...a, status: 'assigned', completed_at: null} : a)); } catch(e) { console.error(e); } };
+
+  const endBulkTask = async (taskId) => {
+    try {
+      await sf(`/rest/v1/bulk_tasks?id=eq.${taskId}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ is_active: false }) });
+      setBulkView('list'); setSelBulkTask(null); await loadBulkTasks();
+    } catch(e) { setBFineOk('Error: ' + e.message); }
+  };
+
+  const bulkFine = async () => {
+    const incomplete = bulkAssignments.filter(a => a.status === 'assigned');
+    if (incomplete.length === 0) return;
+    const fAmt = parseFloat(selBulkTask?.fine_amount) || 0;
+    if (fAmt <= 0) { setBFineOk('⚠️ No fine amount set for this task.'); return; }
+    setBFiningAll(true); setBFineOk('');
+    let count = 0;
+    try {
+      for (const a of incomplete) {
+        const bal = parseFloat(a.profiles?.current_balance) || 0; const nb = bal + fAmt; const now = new Date().toISOString();
+        const maxRowRes = await sf(`/rest/v1/ledger?profile_id=eq.${a.profile_id}&select=row_order&order=row_order.desc&limit=1`);
+        const nextRow = (maxRowRes && maxRowRes[0] ? (maxRowRes[0].row_order || 0) + 1 : 1);
+        await insertLedger({ profile_id: a.profile_id, entry_type: 'Fine', entry_date: now, amount: fAmt, balance_after: nb, description: `Task fine: ${selBulkTask.title}`, admin_fee: 0, created_at: now, tokens_awarded: 0, row_order: nextRow });
+        await patchProfile(a.profile_id, { current_balance: nb });
+        await sf(`/rest/v1/bulk_task_assignments?id=eq.${a.id}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ status: 'fined', fined_at: now }) });
+        await sf('/rest/v1/notifications', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ profile_id: a.profile_id, notification_type: 'general', title: '⚠️ Task Fine', message: `You were fined ${fmt(fAmt)} for not completing: ${selBulkTask.title}. New balance: ${fmt(nb)}.`, created_at: now }) });
+        count++;
+      }
+      setBFineOk(`✅ Fined ${count} debtors £${fAmt} each.`);
+      const updated = await getBulkAssignments(selBulkTask.id); setBulkAssignments(updated || []); onDone?.();
+    } catch(e) { setBFineOk('Error: ' + e.message); }
+    setBFiningAll(false);
+  };
 
   const pending = tasks.filter(t => t.status === 'submitted');
   const active = tasks.filter(t => t.status === 'active' || t.status === 'overdue');
@@ -2588,90 +2660,15 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
     setAssigning(false);
   };
 
-  // ===== Day tracker (multi-day challenges) =====
-  const openDayTracker = async (task) => {
-    setDayTrackerTask(task);
-    setDayTrackerOrder(null);
-    setDayTrackerErr('');
-    setDayTrackerLoading(true);
-    try {
-      if (!task.shop_order_id) {
-        setDayTrackerErr('This task has no linked shop order — only multi-day challenges support day tracking.');
-        setDayTrackerLoading(false);
-        return;
-      }
-      const rows = await getShopOrderById(task.shop_order_id);
-      const order = Array.isArray(rows) ? rows[0] : rows;
-      if (!order) {
-        setDayTrackerErr('Linked shop order not found.');
-      } else if (!order.task_duration_days) {
-        setDayTrackerErr('This task is not a multi-day challenge. Wait for the debtor to mark it complete in their portal.');
-      } else {
-        setDayTrackerOrder(order);
-      }
-    } catch(e) {
-      setDayTrackerErr('Failed to load: ' + e.message);
-    }
-    setDayTrackerLoading(false);
-  };
-
-  const closeDayTracker = () => {
-    setDayTrackerTask(null);
-    setDayTrackerOrder(null);
-    setDayTrackerErr('');
-  };
-
-  const doMarkDay = async () => {
-    if (!dayTrackerOrder) return;
-    setLd(true); setDayTrackerErr('');
-    try {
-      const result = await markTaskDay(dayTrackerOrder.id, null);
-      if (result?.error) {
-        setDayTrackerErr(result.error);
-      } else {
-        // Refresh the order to show the new state
-        const rows = await getShopOrderById(dayTrackerOrder.id);
-        const fresh = Array.isArray(rows) ? rows[0] : rows;
-        if (fresh) setDayTrackerOrder(fresh);
-        if (result?.is_done) {
-          setOk('🎉 ' + dayTrackerTask.title + ' completed for ' + (dayTrackerTask.profiles?.debtor_number || ''));
-          // When all days done, also accept the parent task so it leaves the active tab
-          try { await acceptTask(dayTrackerTask.id, 'All ' + result.total_days + ' days completed'); } catch(e) {}
-          onDone?.();
-          closeDayTracker();
-        } else {
-          onDone?.();
-        }
-      }
-    } catch(e) { setDayTrackerErr('Error: ' + e.message); }
-    setLd(false);
-  };
-
-  const doUndoDay = async () => {
-    if (!dayTrackerOrder) return;
-    setLd(true); setDayTrackerErr('');
-    try {
-      const result = await undoTaskDay(dayTrackerOrder.id);
-      if (result?.error) {
-        setDayTrackerErr(result.error);
-      } else {
-        const rows = await getShopOrderById(dayTrackerOrder.id);
-        const fresh = Array.isArray(rows) ? rows[0] : rows;
-        if (fresh) setDayTrackerOrder(fresh);
-        onDone?.();
-      }
-    } catch(e) { setDayTrackerErr('Error: ' + e.message); }
-    setLd(false);
-  };
-
   return (
     <div className="page">
       <div className="page-title">📋 Task Manager</div>
 
       <div className="tabs">
+        <button className={`tab ${tab==='bulk'?'active':''}`} onClick={()=>{setTab('bulk');setBulkView('list');}}>Bulk Assign</button>
         <button className={`tab ${tab==='pending'?'active':''}`} onClick={()=>setTab('pending')}>Submitted ({pending.length})</button>
         <button className={`tab ${tab==='active'?'active':''}`} onClick={()=>setTab('active')}>Active ({active.length})</button>
-        <button className={`tab ${tab==='assign'?'active':''}`} onClick={()=>setTab('assign')}>Assign</button>
+        <button className={`tab ${tab==='assign'?'active':''}`} onClick={()=>setTab('assign')}>Assign 1</button>
         <button className={`tab ${tab==='history'?'active':''}`} onClick={()=>setTab('history')}>History</button>
       </div>
 
@@ -2717,158 +2714,24 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
             </div>
             <button className="btn btn-danger" onClick={doFine} disabled={ld||!fineAmt} style={{width:'100%'}}>{ld?<span className="spinner"/>:'⚠️ Fine Debtor'}</button>
           </div>
-
-          <div style={{borderTop:'1px solid var(--border)',paddingTop:'12px',marginTop:'12px'}}>
-            <button className="btn btn-outline" disabled={ld} onClick={async()=>{
-              if(!window.confirm('Clear "'+reviewItem.title+'"? Marks it cancelled. No fine, no balance change.')) return;
-              setLd(true); setErr(''); setOk('');
-              try { const r = await cancelTask(reviewItem.id, null); if(r?.error){setErr(r.error);}else{setOk('🧹 Cleared: '+reviewItem.title); setReviewItem(null); onDone?.();} }
-              catch(e){ setErr('Error: '+e.message); }
-              setLd(false);
-            }} style={{width:'100%'}}>🧹 Clear (no fine)</button>
-          </div>
         </div>
       )}
 
-      {tab === 'active' && !dayTrackerTask && (
+      {tab === 'active' && (
         active.length === 0 ? <div className="empty-state">No active tasks</div> :
         <div className="feed-list">{active.map(t => {
           const due = t.due_date ? new Date(t.due_date) : null;
           const isOverdue = due && due < new Date();
-          const isMultiDay = !!t.shop_order_id;
-          const doDoneActive = async (e) => {
-            e.stopPropagation();
-            if (!window.confirm('Mark "' + t.title + '" as done for ' + (t.profiles?.debtor_number||'') + '?')) return;
-            setLd(true); setErr(''); setOk('');
-            try {
-              const r = await acceptTask(t.id, null);
-              if (r?.error) setErr(r.error); else { setOk('✅ Done: ' + t.title); onDone?.(); }
-            } catch(err) { setErr('Error: ' + err.message); }
-            setLd(false);
-          };
-          const doFailActive = async (e) => {
-            e.stopPropagation();
-            const defaultFine = parseFloat(t.fine_if_missed || t.fine_amount || 0) || '';
-            const amtStr = window.prompt('Fine amount for failed task "' + t.title + '" (£):', String(defaultFine));
-            if (amtStr === null) return;
-            const amt = parseFloat(amtStr);
-            if (!(amt > 0)) { window.alert('Enter a fine amount greater than 0.'); return; }
-            const note = window.prompt('Reason (optional):', '') || null;
-            setLd(true); setErr(''); setOk('');
-            try {
-              const r = await fineTask(t.id, amt, note);
-              if (r?.error) setErr(r.error); else { setOk('⚠️ Failed + fined £' + amt + ': ' + t.title); onDone?.(); }
-            } catch(err) { setErr('Error: ' + err.message); }
-            setLd(false);
-          };
           return (
-            <div className="feed-item" key={t.id} onClick={isMultiDay?()=>openDayTracker(t):undefined} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px',cursor:isMultiDay?'pointer':'default',alignItems:'center'}}>
+            <div className="feed-item" key={t.id} style={{borderLeftColor:isOverdue?'var(--red)':'var(--gold)',borderLeftWidth:'3px'}}>
               <div className="feed-icon" style={{background:isOverdue?'rgba(231,76,60,0.15)':'rgba(201,168,76,0.15)'}}>{isOverdue?'🚨':'📋'}</div>
               <div className="feed-body">
                 <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {t.title}</div>
                 <div className="feed-time">{due ? (isOverdue?'OVERDUE — was due ':'Due: ')+fmtD(t.due_date) : 'No deadline'} · Assigned {ago(t.created_at)}</div>
               </div>
-              {(() => {
-                const doClearActive = async (e) => {
-                  e.stopPropagation();
-                  if (!window.confirm('Clear "' + t.title + '"? Marks it cancelled. No fine, no balance change.')) return;
-                  setLd(true); setErr(''); setOk('');
-                  try {
-                    const r = await cancelTask(t.id, null);
-                    if (r?.error) setErr(r.error); else { setOk('🧹 Cleared: ' + t.title); onDone?.(); }
-                  } catch(err) { setErr('Error: ' + err.message); }
-                  setLd(false);
-                };
-                return isMultiDay ? (
-                  <div style={{display:'flex',gap:'6px',flexShrink:0,alignItems:'center'}}>
-                    <button className="btn btn-sm" disabled={ld} onClick={doClearActive} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'6px 10px',fontSize:'11px'}}>🧹 Clear</button>
-                    <div style={{color:'var(--gold)',fontSize:'14px'}}>→</div>
-                  </div>
-                ) : (
-                  <div style={{display:'flex',gap:'6px',flexShrink:0}}>
-                    <button className="btn btn-sm" disabled={ld} onClick={doDoneActive} style={{background:'var(--green)',color:'#0a0a0a',padding:'6px 10px',fontSize:'11px',fontWeight:600}}>✅ Done</button>
-                    <button className="btn btn-sm" disabled={ld} onClick={doFailActive} style={{background:'transparent',color:'var(--red)',border:'1px solid rgba(231,76,60,0.4)',padding:'6px 10px',fontSize:'11px'}}>❌ Fail</button>
-                    <button className="btn btn-sm" disabled={ld} onClick={doClearActive} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'6px 10px',fontSize:'11px'}}>🧹 Clear</button>
-                  </div>
-                );
-              })()}
             </div>
           );
         })}</div>
-      )}
-
-      {tab === 'active' && dayTrackerTask && (
-        <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'16px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-            <div style={{fontSize:'16px',fontWeight:600,color:'var(--gold)'}}>{dayTrackerTask.title}</div>
-            <button className="btn btn-sm btn-outline" onClick={closeDayTracker}>✕</button>
-          </div>
-          <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'12px'}}>
-            <strong>{dayTrackerTask.profiles?.debtor_number} {privacyMode?'':dayTrackerTask.profiles?.display_name}</strong>
-            {dayTrackerTask.due_date && ` · Due ${fmtD(dayTrackerTask.due_date)}`}
-          </div>
-
-          {dayTrackerLoading && <div className="empty-state">Loading...</div>}
-          {dayTrackerErr && <div className="error-msg" style={{marginBottom:'12px'}}>{dayTrackerErr}</div>}
-
-          {dayTrackerOrder && (() => {
-            const total = dayTrackerOrder.task_duration_days || 0;
-            const done = dayTrackerOrder.task_days_completed || 0;
-            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-            const log = Array.isArray(dayTrackerOrder.task_checkin_log) ? dayTrackerOrder.task_checkin_log : [];
-            const isComplete = done >= total;
-            return (
-              <div>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'8px'}}>
-                  <span style={{fontSize:'24px',fontWeight:600,color:'var(--gold)'}}>{done} / {total} days</span>
-                  <span style={{fontSize:'13px',color:'var(--text-dim)'}}>{pct}%</span>
-                </div>
-                <div style={{height:'6px',background:'var(--bg-input)',borderRadius:'3px',overflow:'hidden',marginBottom:'16px'}}>
-                  <div style={{height:'100%',width:pct+'%',background:isComplete?'var(--green)':'var(--gold)',transition:'width 0.3s ease'}} />
-                </div>
-
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'8px',marginBottom:'16px'}}>
-                  {Array.from({length: total}, (_, i) => {
-                    const dayNum = i + 1;
-                    const isDone = dayNum <= done;
-                    const entry = log.find(l => l && l.day === dayNum);
-                    const dateStr = entry?.date ? new Date(entry.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '';
-                    return (
-                      <div key={dayNum} style={{
-                        padding:'10px 6px',
-                        textAlign:'center',
-                        background: isDone ? 'rgba(46,204,113,0.12)' : 'var(--bg-input)',
-                        border: '1px solid ' + (isDone ? 'var(--green)' : 'var(--border)'),
-                        borderRadius:'var(--radius-sm)',
-                        fontSize:'12px'
-                      }}>
-                        <div style={{fontSize:'18px',marginBottom:'2px'}}>{isDone?'✅':'⬜'}</div>
-                        <div style={{fontWeight:600,color: isDone?'var(--green)':'var(--text-dim)'}}>Day {dayNum}</div>
-                        {dateStr && <div style={{fontSize:'10px',color:'var(--text-dim)',marginTop:'2px'}}>{dateStr}</div>}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {!isComplete && (
-                  <button className="btn" onClick={doMarkDay} disabled={ld} style={{width:'100%',marginBottom:'8px'}}>
-                    {ld ? <span className="spinner"/> : '✅ Mark Day ' + (done + 1) + ' Complete'}
-                  </button>
-                )}
-                {done > 0 && (
-                  <button className="btn btn-outline btn-sm" onClick={doUndoDay} disabled={ld} style={{width:'100%'}}>
-                    {ld ? <span className="spinner"/> : '↩ Undo last day'}
-                  </button>
-                )}
-                {isComplete && (
-                  <div style={{textAlign:'center',padding:'12px',background:'rgba(46,204,113,0.1)',border:'1px solid var(--green)',borderRadius:'var(--radius-sm)',color:'var(--green)',fontWeight:600}}>
-                    🎉 All days complete!
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
       )}
 
       {tab === 'assign' && (
@@ -2877,7 +2740,7 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
           <div className="form-group"><label className="form-label">Debtor</label>
             <select className="fs" value={assignPid} onChange={e=>{setAssignPid(e.target.value);setTaskShield(null);setErr('');if(e.target.value){getDebtorAddons(e.target.value).then(r=>{const ts=(r||[]).find(a=>a.item_type==='task_shield'&&a.shield_uses_remaining>0);setTaskShield(ts||null);}).catch(()=>setTaskShield(null));}}}>
               <option value="">Select debtor...</option>
-              {profiles.filter(p=>p.is_active!==false).map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode?'••••':p.display_name}</option>))}
+              {profiles.filter(p=>p.is_active!==false&&!(p.debtor_number||'').startsWith('ARCH_')).map(p=>(<option key={p.id} value={p.id}>{p.debtor_number} — {privacyMode?'••••':p.display_name}</option>))}
             </select>
           </div>
 
@@ -2917,6 +2780,137 @@ function TaskManager({ tasks, profiles, onDone, privacyMode }) {
           </div>
         ))}</div>
       )}
+
+      {/* === BULK ASSIGN TAB === */}
+      {tab === 'bulk' && bulkView === 'list' && (
+        <div>
+          <button className="btn" onClick={startBulkCreate} style={{width:'100%',marginBottom:'12px'}}>+ Assign New Bulk Task</button>
+          <label className="cb-row" style={{marginBottom:'12px',padding:'8px 12px'}}>
+            <input type="checkbox" checked={showEndedTasks} onChange={e=>setShowEndedTasks(e.target.checked)} />
+            <span style={{fontSize:'13px'}}>Show ended tasks</span>
+          </label>
+          {bulkLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
+            bulkTasks.filter(t => showEndedTasks || t.is_active !== false).length === 0 ? <div className="empty-state">No bulk tasks assigned yet</div> :
+            <div className="feed-list">
+              {bulkTasks.filter(t => showEndedTasks || t.is_active !== false).map(t => {
+                const dl = t.deadline ? new Date(t.deadline) : null;
+                const overdue = dl && dl < new Date();
+                const ended = t.is_active === false;
+                return (
+                  <div className="feed-item" key={t.id} onClick={() => openBulkTask(t)} style={{opacity: ended ? 0.5 : 1}}>
+                    <div className={`feed-icon ${ended ? 'fi-fee' : (overdue ? 'fi-fine' : 'fi-pay')}`}>{ended ? '🏁' : (overdue ? '⏰' : '📋')}</div>
+                    <div className="feed-body">
+                      <div className="feed-text"><strong>{t.title}</strong>{ended && <span style={{color:'var(--text-muted)',fontSize:'11px',marginLeft:'8px'}}>ENDED</span>}</div>
+                      <div className="feed-time">{dl ? `Deadline: ${fmtD(t.deadline)}${overdue ? ' — OVERDUE' : ''}` : 'No deadline'}{t.fine_amount > 0 && ` · Fine: ${fmt(t.fine_amount)}`}</div>
+                    </div>
+                    <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+        </div>
+      )}
+
+      {tab === 'bulk' && bulkView === 'create' && (() => {
+        const selCount = Object.values(bSelected).filter(Boolean).length;
+        return (
+          <div>
+            <button className="back-btn" onClick={() => setBulkView('list')}>← Back</button>
+            <div className="form-group"><label className="form-label">Task Title</label><input className="fi" value={bTitle} onChange={e => setBTitle(e.target.value)} placeholder="e.g. Buy Mind Body Wallet Clip" /></div>
+            <div className="form-group"><label className="form-label">Description / Message</label><textarea className="ft" value={bDesc} onChange={e => setBDesc(e.target.value)} placeholder="This will be sent as the notification message..." /></div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+              <div className="form-group"><label className="form-label">Deadline</label><input className="fi" type="datetime-local" value={bDeadline} onChange={e => setBDeadline(e.target.value)} /></div>
+              <div className="form-group"><label className="form-label">Fine if missed (£)</label><input className="fi" type="number" inputMode="decimal" value={bFineAmt} onChange={e => setBFineAmt(e.target.value)} placeholder="0" /></div>
+            </div>
+            <div className="form-group"><label className="cb-row"><input type="checkbox" checked={bSendNotif} onChange={e => setBSendNotif(e.target.checked)} /><span style={{fontSize:'13px'}}>📨 Send notification to selected debtors</span></label></div>
+            <div style={{marginBottom:'16px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                <label className="form-label" style={{margin:0}}>Assign To ({selCount} selected)</label>
+                <div style={{display:'flex',gap:'6px'}}>
+                  <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'11px'}} onClick={bSelectAll}>All</button>
+                  <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'11px'}} onClick={bSelectNone}>None</button>
+                </div>
+              </div>
+              <div style={{maxHeight:'300px',overflowY:'auto',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',background:'var(--bg-input)'}}>
+                {profiles.map(p => (
+                  <label key={p.id} className="cb-row" style={{borderRadius:0,borderBottom:'1px solid var(--border)',padding:'10px 12px',background: bSelected[p.id] ? 'var(--gold-glow)' : 'transparent'}}>
+                    <input type="checkbox" checked={!!bSelected[p.id]} onChange={() => toggleBDebtor(p.id)} />
+                    <span style={{fontSize:'13px'}}>{p.debtor_number} — {privacyMode ? '••••' : p.display_name}{!privacyMode && p.username && <span style={{color:'var(--text-muted)',fontStyle:'italic'}}> @{p.username}</span>}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {bErr && <div className="error-msg" style={{marginBottom:'12px'}}>{bErr}</div>}
+            {bOk && <div className="success-msg" style={{marginBottom:'12px'}}>{bOk}</div>}
+            <button className="btn" onClick={createBulkTask} disabled={bSaving} style={{width:'100%'}}>{bSaving ? <span className="spinner"/> : `Assign to ${selCount} Debtors`}</button>
+          </div>
+        );
+      })()}
+
+      {tab === 'bulk' && bulkView === 'detail' && selBulkTask && (() => {
+        const bAssigned = bulkAssignments.filter(a => a.status === 'assigned');
+        const bCompleted = bulkAssignments.filter(a => a.status === 'completed');
+        const bFined = bulkAssignments.filter(a => a.status === 'fined');
+        const dl = selBulkTask.deadline ? new Date(selBulkTask.deadline) : null;
+        const overdue = dl && dl < new Date();
+        const isEnded = selBulkTask.is_active === false;
+        return (
+          <div>
+            <button className="back-btn" onClick={() => { setBulkView('list'); setSelBulkTask(null); }}>← Back</button>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+              <div style={{fontSize:'18px',fontWeight:600,color: isEnded ? 'var(--text-dim)' : 'var(--gold)',fontFamily:'Cormorant Garamond, serif'}}>{selBulkTask.title}{isEnded && <span style={{fontSize:'12px',color:'var(--text-muted)',marginLeft:'8px',fontFamily:'DM Sans, sans-serif'}}>ENDED</span>}</div>
+              {!isEnded && (
+                <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{if(!confirm('End this task? It will be marked as inactive.')) return;await endBulkTask(selBulkTask.id);setSelBulkTask({...selBulkTask, is_active:false});await loadBulkTasks();}}>🏁 End Task</button>
+              )}
+            </div>
+            {selBulkTask.description && <div style={{fontSize:'13px',color:'var(--text-dim)',marginBottom:'16px',lineHeight:1.6}}>{selBulkTask.description}</div>}
+            <div className="stats-grid" style={{marginBottom:'16px'}}>
+              <div className="stat-card"><div className="stat-label">Assigned</div><div className="stat-value sm" style={{color:'var(--text)'}}>{bAssigned.length}</div></div>
+              <div className="stat-card"><div className="stat-label">Completed</div><div className="stat-value sm" style={{color:'var(--green)'}}>{bCompleted.length}</div></div>
+              {dl && <div className="stat-card"><div className="stat-label">Deadline</div><div className="stat-value sm" style={{fontSize:'14px',color: overdue ? 'var(--red)' : 'var(--text-dim)'}}>{fmtD(selBulkTask.deadline)}{overdue ? ' ⏰' : ''}</div></div>}
+              {selBulkTask.fine_amount > 0 && <div className="stat-card"><div className="stat-label">Fine Amount</div><div className="stat-value sm" style={{color:'var(--red)'}}>{fmt(selBulkTask.fine_amount)}</div></div>}
+            </div>
+            {!isEnded && bAssigned.length > 0 && selBulkTask.fine_amount > 0 && (
+              <div style={{marginBottom:'16px'}}><button className="btn btn-danger" onClick={bulkFine} disabled={bFiningAll} style={{width:'100%'}}>{bFiningAll ? <span className="spinner"/> : `⚠️ Fine ${bAssigned.length} Incomplete — ${fmt(selBulkTask.fine_amount)} each`}</button></div>
+            )}
+            {bFineOk && <div className={bFineOk.startsWith('✅') ? 'success-msg' : 'error-msg'} style={{marginBottom:'12px'}}>{bFineOk}</div>}
+            {bAssigned.length > 0 && (
+              <div style={{marginBottom:'20px'}}>
+                <div className="section-title" style={{color:'var(--red)'}}>❌ Not Completed ({bAssigned.length})</div>
+                {bAssigned.map(a => (
+                  <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
+                    <div><div style={{fontSize:'13px',fontWeight:600}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>{!privacyMode && a.profiles?.username && <div style={{fontSize:'11px',color:'var(--text-muted)',fontStyle:'italic'}}>@{a.profiles.username}</div>}</div>
+                    {!isEnded && <button className="btn btn-sm" style={{padding:'6px 12px',fontSize:'11px'}} onClick={() => markBCompleted(a.id)}>✓ Done</button>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {bCompleted.length > 0 && (
+              <div style={{marginBottom:'20px'}}>
+                <div className="section-title" style={{color:'var(--green)'}}>✅ Completed ({bCompleted.length})</div>
+                {bCompleted.map(a => (
+                  <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:'rgba(76,175,80,0.05)',border:'1px solid rgba(76,175,80,0.2)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
+                    <div><div style={{fontSize:'13px',fontWeight:600,color:'var(--green)'}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>{a.completed_at && <div style={{fontSize:'10px',color:'var(--text-muted)'}}>{fmtD(a.completed_at)}</div>}</div>
+                    {!isEnded && <button className="btn btn-sm btn-outline" style={{padding:'4px 10px',fontSize:'10px'}} onClick={() => markBAssigned(a.id)}>Undo</button>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {bFined.length > 0 && (
+              <div>
+                <div className="section-title" style={{color:'var(--red)'}}>⚠️ Fined ({bFined.length})</div>
+                {bFined.map(a => (
+                  <div key={a.id} style={{padding:'10px 12px',background:'rgba(231,76,60,0.05)',border:'1px solid rgba(231,76,60,0.2)',borderRadius:'var(--radius-sm)',marginBottom:'6px'}}>
+                    <div style={{fontSize:'13px',fontWeight:600,color:'var(--red)'}}>{a.profiles?.debtor_number} — {privacyMode ? '••••' : a.profiles?.display_name}</div>
+                    {a.fined_at && <div style={{fontSize:'10px',color:'var(--text-muted)'}}>Fined {fmtD(a.fined_at)}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3036,6 +3030,10 @@ function ShopOrders({ orders, onDone, privacyMode }) {
   const [showReject, setShowReject] = useState(false);
   const [shieldUses, setShieldUses] = useState('1');
   const [shieldDays, setShieldDays] = useState('');
+  const [taskDuration, setTaskDuration] = useState('');
+  const [activeTasks, setActiveTasks] = useState([]);
+  const [activeTab, setActiveTab] = useState('pending');
+  const [taskLd, setTaskLd] = useState(false);
   const [ld, setLd] = useState(false);
   const [ok, setOk] = useState('');
   const [err, setErr] = useState('');
@@ -3046,16 +3044,29 @@ function ShopOrders({ orders, onDone, privacyMode }) {
     'fine_shield': '🔰 Fine Shield',
     'task_shield': '🚫 Task Shield',
     'custom_task': '🎯 Custom Task',
+    'sacrifice_ledger': '📖 The Sacrifice Ledger',
     'reward_1st': '🏆 1st Place Reward',
     'reward_2nd': '🥈 2nd Place Reward',
     'reward_3rd': '🥉 3rd Place Reward'
   };
 
   const isShield = (type) => ['interest_shield','fine_shield','task_shield'].includes(type);
+  const isTask = (type) => ['lines','custom_task','sacrifice_ledger'].includes(type);
+
+  const loadActiveTasks = async () => {
+    setTaskLd(true);
+    try {
+      const d = await sf('/rest/v1/shop_orders?task_status=in.(active,completed,failed)&select=*,profiles!inner(display_name,debtor_number,username)&order=created_at.desc&limit=100');
+      setActiveTasks(d || []);
+    } catch(e) { console.error(e); }
+    setTaskLd(false);
+  };
+
+  useEffect(() => { loadActiveTasks(); }, []);
 
   const openReview = (item) => {
     setReviewItem(item); setAdminNote(''); setRejectReason(''); setShowReject(false); setOk(''); setErr('');
-    setShieldUses('1'); setShieldDays('');
+    setShieldUses('1'); setShieldDays(''); setTaskDuration('');
   };
 
   const doApprove = async () => {
@@ -3067,11 +3078,15 @@ function ShopOrders({ orders, onDone, privacyMode }) {
         body.p_shield_uses = parseInt(shieldUses) || 1;
         body.p_shield_days = shieldDays ? parseInt(shieldDays) : null;
       }
+      if (isTask(reviewItem.item_type) && taskDuration) {
+        body.p_task_duration_days = parseInt(taskDuration) || null;
+      }
       const result = await sf('/rest/v1/rpc/approve_shop_order', { method: 'POST', body: JSON.stringify(body) });
       if (result && result.error) { setErr(result.error); setLd(false); return; }
-      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}`);
+      setOk(`✅ ${result.item} approved for ${result.debtor}. ${result.tokens_deducted > 0 ? result.tokens_deducted + ' tokens deducted.' : 'No tokens deducted.'}${result.task_duration ? ' Duration: ' + result.task_duration + ' days.' : ''}`);
       setReviewItem(null);
       onDone?.();
+      loadActiveTasks();
     } catch(e) { setErr('Error: ' + e.message); }
     setLd(false);
   };
@@ -3091,10 +3106,21 @@ function ShopOrders({ orders, onDone, privacyMode }) {
 
   return (
     <div className="page">
-      <div className="page-title">🛒 Shop Orders ({orders.length})</div>
+      <div className="page-title">🛒 Shop Orders</div>
+      
+      <div className="tabs">
+        <button className={`tab ${activeTab==='pending'?'active':''}`} onClick={()=>setActiveTab('pending')}>Pending ({orders.length})</button>
+        <button className={`tab ${activeTab==='active'?'active':''}`} onClick={()=>{setActiveTab('active');loadActiveTasks();}}>Active Tasks ({activeTasks.filter(t=>t.task_status==='active').length})</button>
+        <button className={`tab ${activeTab==='history'?'active':''}`} onClick={()=>{setActiveTab('history');loadActiveTasks();}}>History</button>
+      </div>
+
       {ok && <div className="success-msg" style={{marginBottom:'16px'}}>{ok}</div>}
       {err && <div className="error-msg" style={{marginBottom:'16px'}}>{err}</div>}
-      {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
+
+      {/* === PENDING TAB === */}
+      {activeTab === 'pending' && (
+        <div>
+          {orders.length === 0 && !reviewItem && (<div className="empty-state">No pending shop orders — all clear!</div>)}
 
       {reviewItem && (
         <div style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'20px',marginBottom:'20px'}}>
@@ -3130,6 +3156,17 @@ function ShopOrders({ orders, onDone, privacyMode }) {
                       <input className="fi" type="number" value={shieldDays} onChange={e=>setShieldDays(e.target.value)} placeholder="No expiry" min="1" />
                       <div className="form-hint">Leave empty for no expiry</div>
                     </div>
+                  </div>
+                </div>
+              )}
+              {/* Task duration config */}
+              {isTask(reviewItem.item_type) && (
+                <div style={{background:'rgba(201,168,76,0.06)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius-sm)',padding:'12px',marginBottom:'12px'}}>
+                  <div style={{fontSize:'11px',fontWeight:600,color:'var(--gold)',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:'8px'}}>⏱️ Timed Task Settings (optional)</div>
+                  <div className="form-group" style={{margin:0}}>
+                    <label className="form-label">Duration (days)</label>
+                    <input className="fi" type="number" value={taskDuration} onChange={e=>setTaskDuration(e.target.value)} placeholder="e.g. 7 for a 7-day challenge" min="1" />
+                    <div className="form-hint">Leave empty if this isn't a multi-day task. Debtor will see a day-by-day countdown.</div>
                   </div>
                 </div>
               )}
@@ -3178,6 +3215,101 @@ function ShopOrders({ orders, onDone, privacyMode }) {
               <div style={{color:'var(--gold)',fontSize:'14px',flexShrink:0}}>→</div>
             </div>
           ))}
+        </div>
+      )}
+        </div>
+      )}
+
+      {/* === ACTIVE TASKS TAB === */}
+      {activeTab === 'active' && (
+        <div>
+          {taskLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
+            activeTasks.filter(t=>t.task_status==='active').length === 0 ? <div className="empty-state">No active timed tasks</div> :
+            <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+              {activeTasks.filter(t=>t.task_status==='active').map(t => {
+                const daysLeft = (t.task_duration_days || 0) - (t.task_days_completed || 0);
+                const pct = t.task_duration_days > 0 ? Math.round(((t.task_days_completed || 0) / t.task_duration_days) * 100) : 0;
+                const startDate = t.task_start_date ? new Date(t.task_start_date) : null;
+                const daysSinceStart = startDate ? Math.floor((Date.now() - startDate.getTime()) / (1000*60*60*24)) : 0;
+                return (
+                  <div key={t.id} style={{background:'var(--bg-card)',border:'1px solid var(--border-gold)',borderRadius:'var(--radius)',padding:'16px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                      <div>
+                        <div style={{fontSize:'14px',fontWeight:600,color:'var(--gold)'}}>{itemLabels[t.item_type] || t.item_type}</div>
+                        <div style={{fontSize:'12px',color:'var(--text-dim)'}}>{t.profiles?.debtor_number} — {privacyMode ? '••••' : t.profiles?.display_name}</div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:'16px',fontWeight:700,color: daysLeft <= 1 ? 'var(--green)' : 'var(--text)'}}>{daysLeft} day{daysLeft !== 1 ? 's' : ''} left</div>
+                        <div style={{fontSize:'11px',color:'var(--text-muted)'}}>Started {fmtD(t.task_start_date)}</div>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{height:'8px',background:'var(--bg-input)',borderRadius:'4px',overflow:'hidden',marginBottom:'10px'}}>
+                      <div style={{height:'100%',width:`${pct}%`,background: pct >= 100 ? 'var(--green)' : 'var(--gold)',borderRadius:'4px',transition:'width 0.3s'}} />
+                    </div>
+                    {/* Day checkboxes */}
+                    <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'10px'}}>
+                      {Array.from({length: t.task_duration_days || 0}, (_,i) => {
+                        const completed = i < (t.task_days_completed || 0);
+                        const log = (t.task_day_log || [])[i];
+                        return (
+                          <div key={i} title={log?.completed_at ? 'Day ' + (i+1) + ' — ' + fmtD(log.completed_at) + (log.note ? ' — ' + log.note : '') : 'Day ' + (i+1)} style={{
+                            width:'32px',height:'32px',borderRadius:'50%',
+                            background: completed ? 'var(--gold)' : 'var(--bg-input)',
+                            border: '2px solid ' + (completed ? 'var(--gold)' : 'var(--border)'),
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            fontSize:'11px',color: completed ? '#0a0a0a' : 'var(--text-muted)',fontWeight:700
+                          }}>
+                            {completed ? '✓' : i+1}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {t.admin_note && <div style={{fontSize:'12px',color:'var(--text-dim)',marginBottom:'10px',fontStyle:'italic'}}>📝 {t.admin_note}</div>}
+                    {/* Mark day buttons */}
+                    <div style={{display:'flex',gap:'8px'}}>
+                      <button className="btn btn-sm" style={{flex:1}} onClick={async()=>{
+                        try{
+                          const r=await sf('/rest/v1/rpc/admin_mark_task_day',{method:'POST',body:JSON.stringify({p_order_id:t.id})});
+                          if(r?.error){setErr(r.error);}else{setOk(`✅ Day ${r.days_completed}/${r.total_days} marked${r.is_done?' — TASK COMPLETE!':''}`);loadActiveTasks();onDone?.();}
+                        }catch(e){setErr('Error: '+e.message);}
+                      }} disabled={(t.task_days_completed||0)>=(t.task_duration_days||0)}>✓ Mark Day {(t.task_days_completed||0)+1}</button>
+                      <button className="btn btn-sm btn-outline" style={{padding:'6px 12px',fontSize:'11px'}} onClick={async()=>{
+                        try{
+                          const r=await sf('/rest/v1/rpc/admin_undo_task_day',{method:'POST',body:JSON.stringify({p_order_id:t.id})});
+                          if(r?.error){setErr(r.error);}else{setOk('↩ Undid day mark');loadActiveTasks();}
+                        }catch(e){setErr('Error: '+e.message);}
+                      }} disabled={(t.task_days_completed||0)<=0}>↩ Undo</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* === HISTORY TAB === */}
+      {activeTab === 'history' && (
+        <div>
+          {taskLd ? <div className="loading-screen"><div className="spinner"/><span>Loading...</span></div> :
+            activeTasks.filter(t=>t.task_status==='completed'||t.task_status==='failed').length === 0 ? <div className="empty-state">No completed tasks yet</div> :
+            <div className="feed-list">
+              {activeTasks.filter(t=>t.task_status==='completed'||t.task_status==='failed').map(t => (
+                <div className="feed-item" key={t.id}>
+                  <div className="feed-icon" style={{background:t.task_status==='completed'?'rgba(76,175,80,0.15)':'rgba(231,76,60,0.15)'}}>{t.task_status==='completed'?'✅':'❌'}</div>
+                  <div className="feed-body">
+                    <div className="feed-text"><strong>{t.profiles?.debtor_number} {privacyMode?'••••':t.profiles?.display_name}</strong> — {itemLabels[t.item_type]||t.item_type}</div>
+                    <div className="feed-time">
+                      {t.task_status==='completed'?'Completed':'Failed'} · {t.task_days_completed||0}/{t.task_duration_days||0} days
+                      {t.admin_note&&' · '+t.admin_note}
+                      {' · '+ago(t.resolved_at||t.created_at)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
         </div>
       )}
     </div>
@@ -3282,587 +3414,6 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
   );
 }
   
-  // ========== EVIDENCE VAULT ==========
-  function EvidenceBadge({ pid }) {
-    const [count, setCount] = useState(0);
-    useEffect(() => {
-      if (!pid) return;
-      (async () => {
-        try {
-          const r = await sf('/rest/v1/evidence_files?profile_id=eq.' + pid + '&uploaded_by_role=eq.debtor&admin_last_seen_at=is.null&select=id');
-          setCount((r || []).length);
-        } catch(e) {}
-      })();
-    }, [pid]);
-    if (!count) return null;
-    return <span style={{background:'var(--red)',color:'#0a0a0a',fontSize:'10px',fontWeight:700,borderRadius:'10px',padding:'1px 6px',marginLeft:'4px',verticalAlign:'middle'}}>{count}</span>;
-  }
-
-  function EvidenceVault({ pid, debtorNumber, debtorName, privacyMode }) {
-    const [files, setFiles] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState('');
-    const [msg, setMsg] = useState('');
-    const [uploading, setUploading] = useState(false);
-    const [viewingFile, setViewingFile] = useState(null);
-    const [viewerUrl, setViewerUrl] = useState(null);
-    const [thumbUrls, setThumbUrls] = useState({});
-    const fileInputRef = useRef(null);
-
-    const load = useCallback(async () => {
-      if (!pid) return;
-      setLoading(true); setErr('');
-      try {
-        const r = await sf('/rest/v1/evidence_files?profile_id=eq.' + pid + '&select=*&order=uploaded_at.desc');
-        setFiles(r || []);
-        // Mark debtor-uploaded files as seen
-        try { await sf('/rest/v1/rpc/admin_mark_evidence_seen', { method:'POST', body: JSON.stringify({ p_profile_id: pid }) }); } catch(e) {}
-        // Generate thumb URLs
-        const thumbs = {};
-        for (const f of (r || [])) {
-          try {
-            const s = await sf('/storage/v1/object/sign/evidence/' + f.storage_path.split('/').map(encodeURIComponent).join('/'), {
-              method: 'POST', body: JSON.stringify({ expiresIn: 300 })
-            });
-            thumbs[f.id] = SB_URL + '/storage/v1' + s.signedURL;
-          } catch(e) {}
-        }
-        setThumbUrls(thumbs);
-      } catch(e) { setErr('Load failed: ' + e.message); }
-      setLoading(false);
-    }, [pid]);
-
-    useEffect(() => { load(); }, [load]);
-
-    const doUpload = async (evt) => {
-      const file = evt.target.files && evt.target.files[0];
-      evt.target.value = '';
-      if (!file) return;
-      setMsg(''); setErr('');
-      if (file.size > 104857600) { setErr('Too big — 100 MB max.'); return; }
-      const allowed = ['image/jpeg','image/jpg','image/png','image/gif','image/webp','image/heic','image/heif','video/mp4','video/quicktime','video/webm','video/x-msvideo','video/x-matroska','video/x-m4v'];
-      if (!allowed.includes(file.type)) { setErr('Unsupported file type: ' + file.type); return; }
-      setUploading(true);
-      const fileId = crypto.randomUUID();
-      const ext = file.name.split('.').pop().toLowerCase();
-      const storagePath = pid + '/' + fileId + '.' + ext;
-      const captionTime = new Date().toISOString().replace('T',' ').substring(0,19) + ' UTC';
-      try {
-        // Upload binary via Storage REST
-        const upResp = await fetch(SB_URL + '/storage/v1/object/evidence/' + storagePath, {
-          method: 'POST',
-          headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': file.type, 'x-upsert': 'false' },
-          body: file
-        });
-        if (!upResp.ok) throw new Error('Upload HTTP ' + upResp.status);
-        await sf('/rest/v1/evidence_files', {
-          method: 'POST',
-          headers: { 'Prefer': 'return=minimal' },
-          body: JSON.stringify({
-            id: fileId, profile_id: pid, storage_path: storagePath,
-            file_name: file.name, file_type: file.type, file_size_bytes: file.size,
-            uploaded_by: ADMIN_ID, uploaded_by_role: 'admin',
-            caption: 'Uploaded ' + captionTime
-          })
-        });
-        setMsg('✓ Uploaded.');
-        await load();
-      } catch(e) { setErr('Upload failed: ' + e.message); }
-      setUploading(false);
-    };
-
-    const doDelete = async (f) => {
-      if (!window.confirm('Delete ' + f.file_name + '? This is permanent.')) return;
-      try {
-        const r = await sf('/rest/v1/rpc/admin_delete_evidence', { method: 'POST', body: JSON.stringify({ p_file_id: f.id }) });
-        if (r && r.success === false) throw new Error(r.error);
-        setMsg('✓ Deleted.');
-        await load();
-      } catch(e) { setErr('Delete failed: ' + e.message); }
-    };
-
-    const doDownload = async (f) => {
-      try {
-        const s = await sf('/storage/v1/object/sign/evidence/' + f.storage_path.split('/').map(encodeURIComponent).join('/') + '?download=' + encodeURIComponent(f.file_name), {
-          method: 'POST', body: JSON.stringify({ expiresIn: 60 })
-        });
-        window.open(SB_URL + '/storage/v1' + s.signedURL, '_blank');
-      } catch(e) { setErr('Download failed: ' + e.message); }
-    };
-
-    const openViewer = async (f) => {
-      setViewingFile(f); setViewerUrl(null);
-      try {
-        const s = await sf('/storage/v1/object/sign/evidence/' + f.storage_path.split('/').map(encodeURIComponent).join('/'), {
-          method: 'POST', body: JSON.stringify({ expiresIn: 300 })
-        });
-        setViewerUrl(SB_URL + '/storage/v1' + s.signedURL);
-      } catch(e) { setErr('View failed: ' + e.message); setViewingFile(null); }
-    };
-
-    const fmt = (iso) => { try { const d = new Date(iso); return d.toLocaleString('en-GB', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(e) { return iso; } };
-
-    return (
-      <div>
-        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'12px'}}>
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-m4v" style={{display:'none'}} onChange={doUpload} />
-          <button onClick={()=>fileInputRef.current?.click()} disabled={uploading} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'10px 18px',borderRadius:'4px',cursor:'pointer',fontWeight:600,fontSize:'12px',letterSpacing:'1px'}}>{uploading ? 'Uploading…' : '＋ Upload evidence'}</button>
-          {msg && <span style={{marginLeft:'12px',color:'var(--green)',fontSize:'12px'}}>{msg}</span>}
-          {err && <div style={{color:'var(--red)',fontSize:'12px',marginTop:'8px'}}>{err} <button style={{background:'transparent',border:'none',color:'var(--red)',cursor:'pointer',marginLeft:'6px'}} onClick={()=>setErr('')}>×</button></div>}
-        </div>
-        {loading ? <div className="empty-state">Loading…</div> :
-          files.length === 0 ? <div className="empty-state">No evidence uploaded yet.</div> :
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:'10px'}}>
-            {files.map(f => {
-              const isVideo = (f.file_type||'').startsWith('video');
-              return (
-                <div key={f.id} style={{position:'relative',aspectRatio:'1/1',border:'1px solid var(--border)',borderRadius:'6px',overflow:'hidden',background:'var(--bg-card)',cursor:'pointer'}} onClick={()=>openViewer(f)}>
-                  {thumbUrls[f.id] && (isVideo
-                    ? <video src={thumbUrls[f.id]+'#t=0.1'} muted playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'cover',filter:privacyMode?'blur(18px)':'none',transition:'filter .2s'}} onMouseEnter={e=>{if(privacyMode)e.currentTarget.style.filter='none';}} onMouseLeave={e=>{if(privacyMode)e.currentTarget.style.filter='blur(18px)';}} />
-                    : <img src={thumbUrls[f.id]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',filter:privacyMode?'blur(18px)':'none',transition:'filter .2s'}} onMouseEnter={e=>{if(privacyMode)e.currentTarget.style.filter='none';}} onMouseLeave={e=>{if(privacyMode)e.currentTarget.style.filter='blur(18px)';}} />
-                  )}
-                  {isVideo && <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',fontSize:'32px',color:'var(--gold)',textShadow:'0 2px 6px #000',pointerEvents:'none'}}>▶</div>}
-                  <div style={{position:'absolute',top:'4px',left:'4px',background:'rgba(0,0,0,0.75)',color:f.uploaded_by_role==='admin'?'var(--gold)':'#7bb8ff',fontSize:'9px',padding:'2px 5px',borderRadius:'3px',letterSpacing:'1px'}}>{f.uploaded_by_role==='admin'?'👑':'D'+debtorNumber}</div>
-                  {f.uploaded_by_role==='debtor' && !f.admin_last_seen_at && <div style={{position:'absolute',top:'4px',right:'4px',width:'8px',height:'8px',background:'var(--red)',borderRadius:'50%'}} />}
-                  <div style={{position:'absolute',left:0,right:0,bottom:0,background:'linear-gradient(transparent,rgba(0,0,0,0.9))',padding:'12px 6px 4px',display:'flex',gap:'4px',justifyContent:'flex-end'}}>
-                    <button onClick={(e)=>{e.stopPropagation();doDownload(f);}} title="Download" style={{background:'rgba(201,168,76,0.85)',color:'#0a0a0a',border:'none',padding:'3px 7px',borderRadius:'3px',cursor:'pointer',fontSize:'10px',fontWeight:600}}>⬇</button>
-                    <button onClick={(e)=>{e.stopPropagation();doDelete(f);}} title="Delete" style={{background:'rgba(196,92,92,0.85)',color:'#fff',border:'none',padding:'3px 7px',borderRadius:'3px',cursor:'pointer',fontSize:'10px',fontWeight:600}}>×</button>
-                  </div>
-                  <div style={{position:'absolute',left:'4px',bottom:'4px',color:'#fff',fontSize:'9px',letterSpacing:'0.5px',textShadow:'0 1px 3px #000'}}>{fmt(f.uploaded_at)}</div>
-                </div>
-              );
-            })}
-          </div>
-        }
-        {viewingFile && (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>{setViewingFile(null);setViewerUrl(null);}}>
-            <div style={{position:'relative',maxWidth:'100%',maxHeight:'90vh'}} onClick={e=>e.stopPropagation()}>
-              {viewerUrl ? (
-                (viewingFile.file_type||'').startsWith('video')
-                  ? <video src={viewerUrl} controls autoPlay style={{maxWidth:'100%',maxHeight:'85vh'}} />
-                  : <img src={viewerUrl} alt="" style={{maxWidth:'100%',maxHeight:'85vh'}} />
-              ) : <div style={{color:'var(--text-muted)'}}>Loading…</div>}
-              <div style={{textAlign:'center',color:'var(--text-muted)',fontSize:'11px',marginTop:'12px',letterSpacing:'1px'}}>
-                {viewingFile.file_name} · {fmt(viewingFile.uploaded_at)} · uploaded by {viewingFile.uploaded_by_role} · tap outside to close
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function Phase2Control({ pid, pr, onChange }) {
-    const [busy, setBusy] = useState(false);
-    const [err, setErr] = useState('');
-    const [petition, setPetition] = useState(null);
-    const [tierName, setTierName] = useState(null);
-    const [contract, setContract] = useState(null);
-    const [contractClauses, setContractClauses] = useState([]);
-
-    useEffect(() => {
-      (async () => {
-        try {
-          const a = await sf('/rest/v1/phase2_access?profile_id=eq.' + pid + '&select=*,tier:phase2_tiers!chosen_tier_id(name,icon)');
-          if (a && a[0]) {
-            setPetition(a[0]);
-            if (a[0].tier) setTierName(a[0].tier.icon + ' ' + a[0].tier.name);
-          } else {
-            setPetition(null); setTierName(null);
-          }
-        } catch(e) { /* ignore */ }
-        try {
-          const cn = await sf('/rest/v1/phase2_contracts?profile_id=eq.' + pid + '&status=eq.active&select=*,tier:phase2_tiers!tier_id(*)&order=signed_at.desc&limit=1');
-          if (cn && cn[0]) {
-            setContract(cn[0]);
-            const chs = await sf('/rest/v1/phase2_choices?profile_id=eq.' + pid + '&select=*,clause:phase2_clauses!clause_id(*)&order=spin_number');
-            setContractClauses(chs || []);
-          } else {
-            setContract(null); setContractClauses([]);
-          }
-        } catch(e) { /* ignore */ }
-      })();
-    }, [pid, pr?.phase2_unlocked, pr?.phase2_eligible, pr?.phase2_tier_id]);
-
-    const call = async (rpcName, body, confirmMsg) => {
-      if (confirmMsg && !window.confirm(confirmMsg)) return;
-      setBusy(true); setErr('');
-      try {
-        const r = await sf('/rest/v1/rpc/' + rpcName, { method:'POST', body: JSON.stringify(body) });
-        if (r && r.success === false) { setErr(r.error || 'Failed'); setBusy(false); return; }
-        await onChange?.();
-      } catch(e) { setErr('Error: ' + e.message); }
-      setBusy(false);
-    };
-
-    const unlocked = !!pr?.phase2_unlocked;
-    const eligible = !!pr?.phase2_eligible;
-    const pendingPet = petition && petition.petition_status === 'pending';
-    const step = petition?.current_step || (unlocked ? 'unlocked' : 'locked');
-
-    let statusLabel = 'Locked';
-    if (pendingPet) statusLabel = 'Petition pending';
-    else if (step === 'unlocked') statusLabel = 'Unlocked — choosing tier';
-    else if (step === 'tier_chosen') statusLabel = 'Tier chosen — spinning clauses';
-    else if (step === 'clauses_spun') statusLabel = 'Ready to sign';
-    else if (step === 'signed') statusLabel = 'Signed' + (tierName ? ' · ' + tierName : '');
-    else if (step === 'pp_game_pending') statusLabel = 'PP game pending';
-    else if (step === 'pp_game_complete') statusLabel = 'PP game complete';
-    else if (step === 'declined') statusLabel = 'Declined';
-
-    return (
-      <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'12px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px'}}>
-          <div>
-            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase'}}>Phase 2</div>
-            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'17px',color:'var(--gold)',marginTop:'2px'}}>
-              {statusLabel}
-              {eligible && !unlocked && !pendingPet && <span style={{fontSize:'11px',color:'var(--text-muted)',marginLeft:'8px'}}>(auto-eligible)</span>}
-            </div>
-          </div>
-          <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-            {!unlocked && !pendingPet && (
-              <button disabled={busy} onClick={()=>call('admin_unlock_phase2',{p_profile_id:pid,p_method:'gift'},`Gift Phase 2 to D${pr.debtor_number}?`)} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600,letterSpacing:'1px'}}>🎀 Gift access</button>
-            )}
-            {pendingPet && (
-              <>
-                <button disabled={busy} onClick={()=>call('admin_approve_petition',{p_profile_id:pid},`Approve D${pr.debtor_number}'s petition?`)} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>✅ Approve</button>
-                <button disabled={busy} onClick={()=>call('admin_deny_petition',{p_profile_id:pid,p_refund:true},`Deny + refund D${pr.debtor_number}?`)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>Deny + refund</button>
-                <button disabled={busy} onClick={()=>call('admin_deny_petition',{p_profile_id:pid,p_refund:false},`Deny D${pr.debtor_number} and KEEP £250?`)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>Deny + keep £250</button>
-              </>
-            )}
-            {unlocked && (
-              <button disabled={busy} onClick={()=>call('admin_revoke_phase2',{p_profile_id:pid},`Revoke Phase 2 for D${pr.debtor_number}? In-flight choices wiped.`)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'7px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>🔒 Revoke</button>
-            )}
-          </div>
-        </div>
-        {err && <div style={{color:'#c45c5c',fontSize:'11px',marginTop:'8px'}}>{err}</div>}
-
-        {contract && contract.tier && (
-          <div style={{borderTop:'1px solid var(--border)',marginTop:'12px',paddingTop:'12px'}}>
-            <div style={{fontSize:'11px',letterSpacing:'2px',color:'var(--text-muted)',textTransform:'uppercase',marginBottom:'8px'}}>Active contract</div>
-            <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'17px',color:'var(--gold)',marginBottom:'4px'}}>{contract.tier.icon} {contract.tier.name}</div>
-            <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>
-              Signed {contract.signed_at ? new Date(contract.signed_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : ''}
-              {' · '}Debt £{Number(contract.debt_total||0).toLocaleString()}
-              {' · £'}{Number(contract.weekly_payment)}/wk
-              {' · '}{contract.sunday_wheel_optin ? '0-30% wheel Sundays' : Number(contract.interest_rate)+'% fixed Sundays'}
-            </div>
-            {contractClauses.length > 0 && (
-              <div style={{marginBottom:'10px'}}>
-                <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'6px'}}>Clauses ({(petition?.clause_method === 'select' ? 'picked · £50 fee' : 'spun')})</div>
-                {contractClauses.map(ch => (
-                  <div key={ch.id} style={{display:'flex',gap:'10px',alignItems:'baseline',padding:'6px 0',borderBottom:'1px dotted var(--border)',fontSize:'12px'}}>
-                    <span style={{fontSize:'16px'}}>{ch.clause?.icon}</span>
-                    <span style={{color:'var(--gold)',fontFamily:'Cormorant Garamond,serif',fontSize:'14px',minWidth:'150px'}}>{ch.clause?.name}</span>
-                    <span style={{color:'var(--text)',flex:1,lineHeight:1.5}}>{ch.clause?.description}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {contract.proposed_terms && (
-              <div style={{marginTop:'10px',padding:'10px 12px',background:'var(--bg-card)',borderRadius:'4px'}}>
-                <div style={{fontSize:'11px',color:'var(--text-muted)',marginBottom:'4px'}}>Proposed stipulations · {contract.proposed_terms_status || 'pending'}</div>
-                <div style={{fontSize:'12px',color:'var(--text)',lineHeight:1.6,marginBottom:'8px'}}>{contract.proposed_terms}</div>
-                {(contract.proposed_terms_status === 'pending' || !contract.proposed_terms_status) && (
-                  <div style={{display:'flex',gap:'6px'}}>
-                    <button disabled={busy} onClick={async()=>{try{const r=await sf('/rest/v1/rpc/admin_review_proposed_terms',{method:'POST',body:JSON.stringify({p_contract_id:contract.id,p_approve:true})});if(r?.success===false){setErr(r.error);return;}await onChange?.();}catch(e){setErr(e.message);}}} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>✅ Accept</button>
-                    <button disabled={busy} onClick={async()=>{try{const r=await sf('/rest/v1/rpc/admin_review_proposed_terms',{method:'POST',body:JSON.stringify({p_contract_id:contract.id,p_approve:false})});if(r?.success===false){setErr(r.error);return;}await onChange?.();}catch(e){setErr(e.message);}}} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>❌ Deny</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function Phase2({ profiles, privacyMode, onRefresh }) {
-    const [tab, setTab] = useState('eligible');
-    const [eligible, setEligible] = useState([]);
-    const [petitions, setPetitions] = useState([]);
-    const [contracts, setContracts] = useState([]);
-    const [ppGames, setPpGames] = useState([]);
-    const [tiers, setTiers] = useState([]);
-    const [clausesByProfile, setClausesByProfile] = useState({});
-    const [accessByProfile, setAccessByProfile] = useState({});
-    const [ld, setLd] = useState(false);
-    const [ok, setOk] = useState('');
-    const [err, setErr] = useState('');
-    const [reviewGame, setReviewGame] = useState(null);
-    const [tweetUrl, setTweetUrl] = useState('');
-    const [finalLikes, setFinalLikes] = useState('');
-    const [finalRts, setFinalRts] = useState('');
-    const [finalComments, setFinalComments] = useState('');
-
-    const load = useCallback(async () => {
-      setLd(true); setErr('');
-      try {
-        const [e, p, c, g, t] = await Promise.all([
-          sf('/rest/v1/profiles?phase2_eligible=eq.true&phase2_unlocked=eq.false&is_active=eq.true&select=*&order=current_balance.asc'),
-          sf('/rest/v1/phase2_access?petition_status=eq.pending&select=*,profile:profiles!phase2_access_profile_id_fkey(id,debtor_number,display_name,current_balance,username)'),
-          sf('/rest/v1/phase2_contracts?status=eq.active&select=*,profile:profiles!phase2_contracts_profile_id_fkey(id,debtor_number,display_name,current_balance,username),tier:phase2_tiers!tier_id(*)&order=signed_at.desc'),
-          sf('/rest/v1/phase2_pp_games?select=*,profile:profiles!phase2_pp_games_profile_id_fkey(id,debtor_number,display_name,username)&order=proposed_at.desc'),
-          sf('/rest/v1/phase2_tiers?is_active=eq.true&select=*&order=sort_order')
-        ]);
-        setEligible(e||[]); setPetitions(p||[]); setContracts(c||[]); setPpGames(g||[]); setTiers(t||[]);
-        // Load clauses for each contract's profile (small N, parallel)
-        const contractList = c||[];
-        if (contractList.length > 0) {
-          const ids = [...new Set(contractList.map(x=>x.profile_id))];
-          const [chs, acc] = await Promise.all([
-            sf('/rest/v1/phase2_choices?profile_id=in.(' + ids.join(',') + ')&select=*,clause:phase2_clauses!clause_id(name,icon)&order=spin_number'),
-            sf('/rest/v1/phase2_access?profile_id=in.(' + ids.join(',') + ')&select=profile_id,clause_method,tier_method')
-          ]);
-          const byPid = {};
-          (chs||[]).forEach(ch => { (byPid[ch.profile_id] = byPid[ch.profile_id] || []).push(ch); });
-          setClausesByProfile(byPid);
-          const accMap = {};
-          (acc||[]).forEach(a => { accMap[a.profile_id] = a; });
-          setAccessByProfile(accMap);
-        } else {
-          setClausesByProfile({}); setAccessByProfile({});
-        }
-      } catch(e) { setErr('Load error: ' + e.message); }
-      setLd(false);
-    }, []);
-
-    useEffect(() => { load(); }, [load]);
-
-    const flash = (msg) => { setOk(msg); setTimeout(()=>setOk(''), 3500); };
-
-    const rpc = async (name, body) => {
-      const r = await sf('/rest/v1/rpc/' + name, { method:'POST', body: JSON.stringify(body) });
-      if (r && r.success === false) throw new Error(r.error || 'RPC failed');
-      return r;
-    };
-
-    const gift = async (pid, num) => {
-      if (!window.confirm(`Gift Phase 2 access to D${num}?`)) return;
-      try { await rpc('admin_unlock_phase2', { p_profile_id: pid, p_method: 'gift' }); flash(`🎀 D${num} unlocked.`); await load(); onRefresh?.(); }
-      catch(e) { setErr(e.message); }
-    };
-    const revoke = async (pid, num) => {
-      if (!window.confirm(`Revoke Phase 2 access for D${num}? Any in-flight choices are wiped.`)) return;
-      try { await rpc('admin_revoke_phase2', { p_profile_id: pid }); flash(`🔒 D${num} revoked.`); await load(); onRefresh?.(); }
-      catch(e) { setErr(e.message); }
-    };
-    const approvePetition = async (pid, num) => {
-      if (!window.confirm(`Approve D${num}'s petition? They get access immediately.`)) return;
-      try { await rpc('admin_approve_petition', { p_profile_id: pid }); flash(`🔓 D${num} approved.`); await load(); onRefresh?.(); }
-      catch(e) { setErr(e.message); }
-    };
-    const denyPetition = async (pid, num, refund) => {
-      const msg = refund ? `Deny petition for D${num} and refund £250?` : `Deny petition for D${num} and KEEP the £250?`;
-      if (!window.confirm(msg)) return;
-      try { await rpc('admin_deny_petition', { p_profile_id: pid, p_refund: refund }); flash(`❌ D${num} denied${refund?' (refunded)':' (£250 kept)'}.`); await load(); onRefresh?.(); }
-      catch(e) { setErr(e.message); }
-    };
-    const approveGame = async () => {
-      if (!reviewGame) return;
-      if (!tweetUrl.trim()) { setErr('Paste the tweet URL first.'); return; }
-      try { await rpc('admin_approve_pp_game', { p_game_id: reviewGame.id, p_tweet_url: tweetUrl.trim() }); flash('🎰 Game live.'); setReviewGame(null); setTweetUrl(''); await load(); onRefresh?.(); }
-      catch(e) { setErr(e.message); }
-    };
-    const finalizeGame = async () => {
-      if (!reviewGame) return;
-      const l = parseInt(finalLikes,10), r = parseInt(finalRts,10), c = parseInt(finalComments,10);
-      if (!(l>=0 && r>=0 && c>=0)) { setErr('Enter valid non-negative counts.'); return; }
-      const tally = (l*reviewGame.likes_multiplier)+(r*reviewGame.rts_multiplier)+(c*reviewGame.comments_multiplier);
-      const finalDebt = Math.max(1000, tally) - 250;
-      if (!window.confirm(`Tally = £${tally.toFixed(2)}. Final debt (after £250 deposit) = £${finalDebt.toFixed(2)}. Lock it?`)) return;
-      try { await rpc('admin_finalize_pp_game', { p_game_id: reviewGame.id, p_likes: l, p_rts: r, p_comments: c }); flash(`💎 Game finalized. Debt £${finalDebt.toFixed(2)}.`); setReviewGame(null); setFinalLikes(''); setFinalRts(''); setFinalComments(''); await load(); onRefresh?.(); }
-      catch(e) { setErr(e.message); }
-    };
-
-    const tierBadge = (tier) => tier ? <span style={{color:'var(--gold)',fontFamily:'Cormorant Garamond,serif',fontSize:'14px',letterSpacing:'1px'}}>{tier.icon} {tier.name}</span> : null;
-    const dispName = (p) => privacyMode ? `D${p.debtor_number}` : (p.display_name || p.username || `D${p.debtor_number}`);
-
-    return (
-      <div className="page">
-        <div className="page-title">👑 Phase 2</div>
-        {ok && <div style={{padding:'10px 14px',margin:'0 0 12px',background:'rgba(92,184,122,0.1)',border:'1px solid rgba(92,184,122,0.3)',borderRadius:'4px',color:'#5cb87a',fontSize:'13px'}}>{ok}</div>}
-        {err && <div style={{padding:'10px 14px',margin:'0 0 12px',background:'rgba(196,92,92,0.1)',border:'1px solid rgba(196,92,92,0.3)',borderRadius:'4px',color:'#c45c5c',fontSize:'13px'}}>{err} <button style={{marginLeft:'8px',background:'transparent',border:'none',color:'#c45c5c',cursor:'pointer'}} onClick={()=>setErr('')}>×</button></div>}
-        <div className="tabs" style={{marginBottom:'14px'}}>
-          <button className={`tab ${tab==='eligible'?'active':''}`} onClick={()=>setTab('eligible')}>Eligible ({eligible.length})</button>
-          <button className={`tab ${tab==='petitions'?'active':''}`} onClick={()=>setTab('petitions')}>Petitions ({petitions.length})</button>
-          <button className={`tab ${tab==='contracts'?'active':''}`} onClick={()=>setTab('contracts')}>Contracts ({contracts.length})</button>
-          <button className={`tab ${tab==='games'?'active':''}`} onClick={()=>setTab('games')}>PP Games ({ppGames.filter(g=>!g.final_debt).length})</button>
-          <button className={`tab ${tab==='tiers'?'active':''}`} onClick={()=>setTab('tiers')}>Tier catalog ({tiers.length})</button>
-        </div>
-        {ld && <div style={{padding:'14px',textAlign:'center',color:'var(--text-muted)'}}>Loading…</div>}
-
-        {!ld && tab === 'eligible' && (
-          eligible.length === 0
-            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No subs eligible. Auto-flagged when balance drops to £100 or below.</div>
-            : <div>
-                {eligible.map(p => (
-                  <div key={p.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
-                      <div>
-                        <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(p)}</div>
-                        <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'4px'}}>Balance: £{Number(p.current_balance||0).toFixed(2)} · Tier: {p.tier || 'Debtor'}</div>
-                      </div>
-                      <button onClick={()=>gift(p.id, p.debtor_number)} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 16px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600,letterSpacing:'1px'}}>🎀 Gift access</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-        )}
-
-        {!ld && tab === 'petitions' && (
-          petitions.length === 0
-            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No pending petitions.</div>
-            : <div>
-                {petitions.map(p => p.profile && (
-                  <div key={p.profile_id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
-                    <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(p.profile)}</div>
-                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginTop:'4px',marginBottom:'12px'}}>Paid £250 · Balance £{Number(p.profile.current_balance||0).toFixed(2)}</div>
-                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                      <button onClick={()=>approvePetition(p.profile_id, p.profile.debtor_number)} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>✅ Approve</button>
-                      <button onClick={()=>denyPetition(p.profile_id, p.profile.debtor_number, true)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px'}}>❌ Deny + refund</button>
-                      <button onClick={()=>denyPetition(p.profile_id, p.profile.debtor_number, false)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px'}}>❌ Deny + keep £250</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-        )}
-
-        {!ld && tab === 'contracts' && (
-          contracts.length === 0
-            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No active Phase 2 contracts.</div>
-            : <div>
-                {contracts.map(c => c.profile && (
-                  <div key={c.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:'8px',marginBottom:'8px'}}>
-                      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(c.profile)}</div>
-                      <div>{tierBadge(c.tier)}</div>
-                    </div>
-                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>
-                      Debt £{Number(c.debt_total).toFixed(2)} · Weekly £{Number(c.weekly_payment)} · Sunday {Number(c.interest_rate)}%{c.sunday_wheel_optin?' (0-30% wheel)':''}
-                    </div>
-                    {clausesByProfile[c.profile_id] && (
-                      <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px'}}>
-                        Clauses {accessByProfile[c.profile_id]?.clause_method === 'select' ? <span style={{color:'var(--gold)',fontWeight:600}}>(picked · £50 fee)</span> : accessByProfile[c.profile_id]?.clause_method === 'spin' ? <span style={{color:'var(--text-muted)'}}>(spun)</span> : null}: {clausesByProfile[c.profile_id].map(ch => ch.clause.icon + ' ' + ch.clause.name).join(' · ')}
-                      </div>
-                    )}
-                    {c.proposed_terms && (
-                      <div style={{fontSize:'12px',color:'var(--text-muted)',padding:'8px 10px',background:'var(--surface-2)',borderRadius:'4px',marginBottom:'8px'}}>
-                        <div style={{marginBottom:'6px'}}><b>Proposed terms ({c.proposed_terms_status || 'pending'}):</b> {c.proposed_terms}</div>
-                        {(c.proposed_terms_status === 'pending' || !c.proposed_terms_status) && (
-                          <div style={{display:'flex',gap:'6px',marginTop:'8px'}}>
-                            <button onClick={async()=>{try{await rpc('admin_review_proposed_terms',{p_contract_id:c.id,p_approve:true});flash('✅ Stipulations accepted.');await load();}catch(e){setErr(e.message);}}} style={{background:'#5cb87a',color:'#0a0a0a',border:'none',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>✅ Accept</button>
-                            <button onClick={async()=>{try{await rpc('admin_review_proposed_terms',{p_contract_id:c.id,p_approve:false});flash('❌ Stipulations denied.');await load();}catch(e){setErr(e.message);}}} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>❌ Deny</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <button onClick={()=>revoke(c.profile_id, c.profile.debtor_number)} style={{background:'transparent',color:'#c45c5c',border:'1px solid rgba(196,92,92,0.4)',padding:'6px 12px',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>🔒 Revoke access</button>
-                  </div>
-                ))}
-              </div>
-        )}
-
-        {!ld && tab === 'games' && (
-          ppGames.length === 0
-            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No PP games yet.</div>
-            : <div>
-                {ppGames.map(g => g.profile && (
-                  <div key={g.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'14px 16px',marginBottom:'10px'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:'8px',marginBottom:'8px'}}>
-                      <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'18px',color:'var(--gold)'}}>{dispName(g.profile)}</div>
-                      <div style={{fontSize:'11px',color:'var(--text-muted)'}}>
-                        {g.final_debt ? '💎 finalized' : (g.admin_approved_at ? '🎰 live' : '⏳ pending')}
-                      </div>
-                    </div>
-                    <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'8px'}}>
-                      £{Number(g.likes_multiplier)}/like · £{Number(g.rts_multiplier)}/RT · £{Number(g.comments_multiplier)}/comment · {g.run_time_minutes}min
-                    </div>
-                    {g.additional_stipulations && <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px',padding:'6px 8px',background:'var(--surface-2)',borderRadius:'4px'}}>Stipulations: {g.additional_stipulations}</div>}
-                    {g.tweet_url && <div style={{fontSize:'12px',marginBottom:'8px'}}><a href={g.tweet_url} target="_blank" style={{color:'var(--gold)'}}>Open tweet</a></div>}
-                    {g.final_debt != null && (
-                      <div style={{fontSize:'12px',color:'var(--text)',marginBottom:'8px'}}>
-                        Final: {g.final_likes||0} likes · {g.final_rts||0} RTs · {g.final_comments||0} comments → £{Number(g.final_debt).toFixed(2)}
-                      </div>
-                    )}
-                    {!g.admin_approved_at && (
-                      <button onClick={()=>{setReviewGame(g);setTweetUrl('');setFinalLikes('');setFinalRts('');setFinalComments('');}} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>Approve + post tweet</button>
-                    )}
-                    {g.admin_approved_at && !g.final_debt && (
-                      <button onClick={()=>{setReviewGame(g);setFinalLikes('');setFinalRts('');setFinalComments('');}} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 14px',borderRadius:'4px',cursor:'pointer',fontSize:'12px',fontWeight:600}}>Finalize with tallies</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-        )}
-
-        {!ld && tab === 'tiers' && (
-          tiers.length === 0
-            ? <div style={{padding:'24px',textAlign:'center',color:'var(--text-muted)'}}>No tiers configured.</div>
-            : <div>
-                <div style={{padding:'10px 12px',marginBottom:'12px',background:'var(--surface-2)',borderRadius:'4px',fontSize:'11px',color:'var(--text-muted)',lineHeight:1.6}}>
-                  Read-only reference. Edit the <code>phase2_tiers</code> table directly in Supabase to change copy or terms.
-                </div>
-                {tiers.map(t => (
-                  <details key={t.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'6px',padding:'12px 14px',marginBottom:'10px'}}>
-                    <summary style={{cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:'10px',listStyle:'none'}}>
-                      <span style={{fontFamily:'Cormorant Garamond,serif',fontSize:'19px',color:'var(--gold)',letterSpacing:'1px'}}>{t.icon} {t.name}</span>
-                      <span style={{fontSize:'11px',color:'var(--text-muted)'}}>
-                        {t.debt_amount ? `£${t.debt_amount} debt` : (t.tier_key === 'faithful' ? 'continues balance' : 'game-determined')}
-                        {' · '}£{t.weekly_payment}/wk · {t.interest_rate}% Sunday · £{t.deposit_amount} deposit
-                      </span>
-                    </summary>
-                    <div style={{marginTop:'12px',fontSize:'13px',color:'var(--text)',fontStyle:'italic'}}>{t.short_description}</div>
-                    <div style={{marginTop:'10px',fontSize:'12px',color:'var(--text-muted)',whiteSpace:'pre-wrap',lineHeight:1.7}}>{t.long_description}</div>
-                    <div style={{marginTop:'12px',padding:'10px 12px',background:'var(--bg)',borderRadius:'4px',fontSize:'12px',color:'var(--text)',whiteSpace:'pre-wrap',lineHeight:1.7,fontFamily:'Cormorant Garamond,serif'}}>{t.contract_preamble}</div>
-                    <div style={{marginTop:'12px',display:'flex',gap:'12px',flexWrap:'wrap',fontSize:'11px',color:'var(--text-muted)'}}>
-                      <span>On tier wheel: <b style={{color:'var(--text)'}}>{t.on_tier_wheel ? `yes (${t.wheel_slot_count} slot${t.wheel_slot_count===1?'':'s'})` : 'no'}</b></span>
-                      <span>Gifting: <b style={{color:'var(--text)'}}>{t.allows_gifting ? 'yes' : 'petition-only'}</b></span>
-                      <span>MST pfp required: <b style={{color:'var(--text)'}}>{t.mst_pfp_required ? 'yes' : 'no'}</b></span>
-                      <span>Leaderboard badge: <b style={{color:'var(--text)'}}>{t.leaderboard_badge || '—'}</b></span>
-                      <span>Showcase: <b style={{color:'var(--text)'}}>{t.showcase_placement}</b></span>
-                    </div>
-                  </details>
-                ))}
-              </div>
-        )}
-
-        {reviewGame && !reviewGame.admin_approved_at && (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'20px'}} onClick={e=>{if(e.target===e.currentTarget)setReviewGame(null);}}>
-            <div style={{background:'var(--surface)',border:'1px solid var(--gold)',borderRadius:'6px',padding:'22px',maxWidth:'440px',width:'100%'}}>
-              <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'20px',color:'var(--gold)',marginBottom:'14px'}}>Approve game + post tweet</div>
-              <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}}>Post the tweet using the agreed stipulations, then paste the URL here.</div>
-              <input type="url" value={tweetUrl} onChange={e=>setTweetUrl(e.target.value)} placeholder="https://x.com/MissSophiaTruee/status/..." style={{width:'100%',padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px',marginBottom:'14px'}} />
-              <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
-                <button onClick={()=>setReviewGame(null)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer'}}>Cancel</button>
-                <button onClick={approveGame} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 16px',borderRadius:'4px',cursor:'pointer',fontWeight:600}}>Approve + log URL</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {reviewGame && reviewGame.admin_approved_at && !reviewGame.final_debt && (
-          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:'20px'}} onClick={e=>{if(e.target===e.currentTarget)setReviewGame(null);}}>
-            <div style={{background:'var(--surface)',border:'1px solid var(--gold)',borderRadius:'6px',padding:'22px',maxWidth:'440px',width:'100%'}}>
-              <div style={{fontFamily:'Cormorant Garamond,serif',fontSize:'20px',color:'var(--gold)',marginBottom:'14px'}}>Finalize game</div>
-              <div style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'12px'}}>Multipliers: £{Number(reviewGame.likes_multiplier)}/like · £{Number(reviewGame.rts_multiplier)}/RT · £{Number(reviewGame.comments_multiplier)}/comment.</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'14px'}}>
-                <input type="number" min="0" value={finalLikes} onChange={e=>setFinalLikes(e.target.value)} placeholder="Likes" style={{padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px'}} />
-                <input type="number" min="0" value={finalRts} onChange={e=>setFinalRts(e.target.value)} placeholder="RTs" style={{padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px'}} />
-                <input type="number" min="0" value={finalComments} onChange={e=>setFinalComments(e.target.value)} placeholder="Comments" style={{padding:'10px',background:'var(--bg)',color:'var(--text)',border:'1px solid var(--border)',borderRadius:'4px'}} />
-              </div>
-              <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
-                <button onClick={()=>setReviewGame(null)} style={{background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)',padding:'8px 14px',borderRadius:'4px',cursor:'pointer'}}>Cancel</button>
-                <button onClick={finalizeGame} style={{background:'var(--gold)',color:'#0a0a0a',border:'none',padding:'8px 16px',borderRadius:'4px',cursor:'pointer',fontWeight:600}}>Compute + lock debt</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   function App() {
   const [auth, setAuth] = useState(false);
   const [chk, setChk] = useState(true);
@@ -3960,6 +3511,7 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
       <header className="header">
         <div className="header-brand"><span className="header-crown">👑</span><span className="header-title">Truee Empire</span></div>
         <div className="header-actions">
+          <button className="header-btn" onClick={()=>{load();}} title="Refresh data" style={{fontSize:'16px'}}>🔄</button>
           <button className={`header-btn ${privacyMode?'active':''}`} onClick={()=>setPrivacyMode(!privacyMode)} title={privacyMode?'Show names':'Hide names'}>
             {privacyMode ? '🙈' : '👁'}
           </button>
@@ -3980,7 +3532,6 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
         {pg==='settings'&&<Settings onLogout={lo} />}
         {pg==='guide'&&<Guide />}
         {pg==='onboard'&&<Onboard profiles={profs} onDone={load} />}
-        {pg==='phase2'&&<Phase2 profiles={profs} privacyMode={privacyMode} onRefresh={load} />}
       </>}
       <nav className="bottom-nav">
         <button className={`nav-item ${pg==='dashboard'?'active':''}`} onClick={()=>setPg('dashboard')}>
@@ -4007,10 +3558,8 @@ function AdminLeaderboard({ leaderboardData, profiles, privacyMode, onView, onRe
           <span className="nav-icon">🏪</span><span className="nav-label">Items</span>
         </button>
         <button className={`nav-item ${pg==='activity'?'active':''}`} onClick={()=>setPg('activity')}><span className="nav-icon">📋</span><span className="nav-label">Feed</span></button>
+        <button className={`nav-item ${pg==='tasks'?'active':''}`} onClick={()=>setPg('tasks')}><span className="nav-icon">📋</span><span className="nav-label">Tasks</span></button>
         <button className={`nav-item ${pg==='guide'?'active':''}`} onClick={()=>setPg('guide')}><span className="nav-icon">📖</span><span className="nav-label">Guide</span></button>
-        <button className={`nav-item ${pg==='phase2'?'active':''}`} onClick={()=>setPg('phase2')} style={{position:'relative'}}>
-          <span className="nav-icon">👑</span><span className="nav-label">Phase 2</span>
-        </button>
         <button className={`nav-item ${pg==='settings'?'active':''}`} onClick={()=>setPg('settings')}><span className="nav-icon">⚙️</span><span className="nav-label">Settings</span></button>
       </nav>
     </div>
