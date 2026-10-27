@@ -2267,8 +2267,8 @@ async function handleForcedPasswordChange() {
     var pwResult = await sb.auth.updateUser({ password: pw });
     if (pwResult.error) throw pwResult.error;
 
-    // Clear the must_change_password flag
-    var clearResult = await sb.from('profiles').update({ must_change_password: false }).eq('id', currentProfile.id);
+    // Clear the must_change_password flag (RLS-safe RPC — a direct update is blocked for subs)
+    var clearResult = await sb.rpc('sub_mark_password_changed');
     if (clearResult.error) throw clearResult.error;
 
     currentProfile.must_change_password = false;
